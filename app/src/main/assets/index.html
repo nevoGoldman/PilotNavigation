@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Israel VFR Plotter</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1d242e; --line:#2b333f;
+    --ink:#e7edf3; --muted:#8b97a6; --accent:#ffb000; --accent2:#22d3ee;
+    --magenta:#e0218a; --good:#34d399; --bad:#ff5d5d;
+    --mono:"DejaVu Sans Mono",ui-monospace,Menlo,Consolas,monospace;
+    --ui:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--ui);overflow:hidden;-webkit-tap-highlight-color:transparent}
+  #map{position:absolute;inset:0;background:#0e1116}
+  .leaflet-container{font-family:var(--ui)}
+
+  /* ---- Top toolbar ---- */
+  #topbar{
+    position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);
+    display:flex;gap:6px;align-items:center;padding:6px;border:1px solid var(--line);
+    background:rgba(22,27,34,.92);backdrop-filter:blur(6px);border-radius:12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.45);max-width:96vw;flex-wrap:wrap;justify-content:center
+  }
+  .brand{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--accent);
+    padding:0 8px 0 4px;border-right:1px solid var(--line);white-space:nowrap}
+  .brand b{color:var(--ink)}
+  .tool{
+    appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    font:600 12px/1 var(--ui);padding:8px 10px;border-radius:9px;cursor:pointer;display:flex;
+    align-items:center;gap:6px;white-space:nowrap;transition:.12s
+  }
+  .tool:hover{border-color:#3a4452;background:#242c37}
+  .tool.active{background:var(--accent);color:#1a1300;border-color:var(--accent)}
+  .tool svg{width:15px;height:15px;display:block}
+  .sep{width:1px;height:24px;background:var(--line);margin:0 2px}
+  /* movable + collapsible toolbars */
+  .tbtn{appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    width:26px;height:26px;border-radius:7px;cursor:pointer;font-size:13px;line-height:1;padding:0;
+    display:flex;align-items:center;justify-content:center;transition:.12s}
+  .tbtn:hover{background:#242c37}
+  .drag-handle{cursor:grab;user-select:none;touch-action:none}
+  .drag-handle:active{cursor:grabbing}
+  #topbar.collapsed .tool,#topbar.collapsed .sep{display:none}
+  #topbar.collapsed #topbarToggle{transform:rotate(180deg)}
+  #panel .phead{cursor:grab;user-select:none;touch-action:none}
+  #panel.collapsed .pbody{display:none}
+  #panel.collapsed #panelToggle{transform:rotate(180deg)}
+
+  /* ---- Side panel ---- */
+  #panel{
+    position:absolute;z-index:1000;top:64px;right:10px;width:248px;
+    border:1px solid var(--line);background:rgba(22,27,34,.94);backdrop-filter:blur(6px);
+    border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.45);overflow:hidden
+  }
+  .phead{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;
+    border-bottom:1px solid var(--line);font:700 12px/1 var(--ui);letter-spacing:.04em}
+  .phead .dot{width:8px;height:8px;border-radius:50%;background:var(--magenta);box-shadow:0 0 8px var(--magenta)}
+  .pbody{padding:12px}
+  .readout{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:baseline;margin-bottom:10px}
+  .readout .lab{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .readout .val{font-family:var(--mono);font-size:18px;color:var(--accent2);text-align:right}
+  .readout .val.amber{color:var(--accent)}
+  .readout .val small{font-size:11px;color:var(--muted)}
+  .row{display:flex;gap:8px;align-items:center;margin:8px 0}
+  .row label{font-size:11px;color:var(--muted);min-width:74px}
+  .row input[type=number]{width:100%;background:#0e1116;border:1px solid var(--line);color:var(--ink);
+    border-radius:7px;padding:6px 8px;font-family:var(--mono);font-size:13px}
+  .row input[type=range]{flex:1;accent-color:var(--accent)}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+  .sw.active{border-color:#fff;box-shadow:0 0 0 2px #000 inset}
+  .mini{font-size:11px;color:var(--muted);line-height:1.5}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .btn{flex:1;min-width:70px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    font:600 11px/1 var(--ui);padding:8px;border-radius:8px;cursor:pointer}
+  .btn:hover{background:#242c37}
+  .btn.warn{color:var(--bad);border-color:#43282b}
+  .legal{position:absolute;z-index:1000;bottom:8px;left:10px;max-width:340px;
+    font-size:10px;color:var(--muted);background:rgba(14,17,22,.7);padding:6px 8px;border-radius:8px;border:1px solid var(--line)}
+  .pill{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+  /* ---- Plotter (the signature element) ---- */
+  #plotter{position:absolute;z-index:900;left:50%;top:50%;width:360px;height:520px;
+    margin:-260px 0 0 -180px;touch-action:none;cursor:grab;display:none;filter:drop-shadow(0 6px 18px rgba(0,0,0,.5))}
+  #plotter.dragging{cursor:grabbing}
+  #plotter .rotHandle{cursor:alias}
+  #plotter text{font-family:var(--mono);fill:#0b0e12;font-weight:700}
+  .hidden{display:none!important}
+  @media (max-width:760px){
+    #panel{top:auto;bottom:10px;right:10px;left:10px;width:auto}
+    .legal{display:none}
+  }
+  .leaflet-control-attribution{font-size:9px}
+  /* scale bar */
+  #scalebar{position:absolute;z-index:1000;left:10px;bottom:54px;background:rgba(14,17,22,.82);
+    border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:11px;color:var(--ink)}
+  #scalebar .bar{height:7px;border:1px solid var(--ink);border-top:0;display:flex;margin-top:4px;width:140px}
+  #scalebar .bar i{flex:1;border-left:1px solid var(--ink)}
+  #scalebar .bar i:nth-child(odd){background:rgba(231,237,243,.28)}
+  /* modal */
+  .modal{position:absolute;inset:0;z-index:2000;background:rgba(6,8,11,.62);display:none;align-items:center;justify-content:center}
+  .modal.open{display:flex}
+  .card{width:min(440px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 20px 60px rgba(0,0,0,.6);overflow:hidden}
+  .card h3{margin:0;padding:14px 16px;border-bottom:1px solid var(--line);font-size:14px}
+  .card .cbody{padding:16px}
+  .card p{margin:0 0 10px;font-size:12px;color:var(--muted);line-height:1.6}
+  .card a{color:var(--accent2)}
+  .card input[type=text]{width:100%;background:#0e1116;border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:10px;font-family:var(--mono);font-size:13px}
+  .card .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  .card .actions .btn{flex:0 0 auto;min-width:90px;padding:10px 14px}
+  .calbar{height:46px;background:linear-gradient(90deg,#2bbf6b,#2aa0d8);border-radius:6px;margin:8px 0;position:relative}
+  .calbar::after{content:'↤  match a real credit card (85.6 mm)  ↦';position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;color:#04121a;font:700 11px var(--mono)}
+  .tool.locked{background:var(--good);color:#05140d;border-color:var(--good)}
+  /* lat/lon grid edge labels */
+  .gl{position:absolute;font:700 18px var(--mono);color:#eef3f8;white-space:nowrap;pointer-events:none;
+    text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000}
+  .gl-top{transform:translate(-50%,2px)}
+  .gl-bottom{transform:translate(-50%,calc(-100% - 2px))}
+  .gl-left{transform:translate(4px,-50%)}
+  .gl-right{transform:translate(calc(-100% - 4px),-50%)}
+  .gl-min{font-size:12px;font-weight:600;color:#c2c8d0}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="topbar">
+  <button class="tbtn" id="topbarToggle" title="Collapse / expand toolbar">▾</button>
+  <div class="brand drag-handle" id="topbarGrip" title="Drag to move"><b>ISRAEL</b> VFR · 1:250k</div>
+  <button class="tool active" data-tool="pan" title="Pan / move the map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>Pan</button>
+  <button class="tool" data-tool="draw" title="Freehand pen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l3-1 11-11-2-2L4 18l-1 3z"/><path d="M14 6l2 2"/></svg>Pen</button>
+  <button class="tool" data-tool="route" title="Plot a route (click waypoints)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="5" r="2.5"/><path d="M7 17.5 17 6.5"/></svg>Route</button>
+  <button class="tool" data-tool="text" title="Add a text label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 6h14M12 6v13M9 19h6"/></svg>Text</button>
+  <button class="tool" data-tool="measure" title="Measure track & distance (click 2 points)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17 17 3l4 4L7 21z"/><path d="M8 8l2 2M11 5l2 2M5 11l2 2"/></svg>Measure</button>
+  <button class="tool" data-tool="erase" title="Erase: tap a drawing to remove it">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16 14 6l4 4L8 20H6z"/><path d="M14 20h6"/></svg>Erase</button>
+  <span class="sep"></span>
+  <button class="tool" id="togglePlotter" title="Show/hide the nav plotter">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>Plotter</button>
+  <button class="tool" id="loadChart" title="Overlay your own VFR chart image">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l5-4 4 3 5-5 4 4"/></svg>Chart</button>
+  <button class="tool" id="aeroBtn" title="Add OpenAIP aeronautical overlay (airspace, airports, navaids)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20"/><path d="M12 2c3 3 3 17 0 20M12 2c-3 3-3 17 0 20"/></svg>Aero</button>
+  <button class="tool" id="tilesBtn" title="Add a custom map tile layer (paste a tile URL you are allowed to use)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/><path d="M19 5v4M17 7h4" stroke-width="2.4"/></svg>Map+</button>
+  <button class="tool" id="openVfrBtn" title="Open VFR (Israel): terrain + OpenAIP aeronautical layer, combined">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13M15 7v13"/></svg>Open VFR</button>
+  <button class="tool" id="wxBtn" data-tool="wx" title="Weather: tap any point for an Open-Meteo forecast">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 18 18z"/></svg>WX</button>
+  <button class="tool" id="gpsBtn" title="GPS: show my position on the map (on/off)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>GPS</button>
+  <button class="tool" id="undoBtn" title="Undo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg>Undo</button>
+</div>
+
+<div id="panel">
+  <div class="phead" id="panelGrip" title="Drag to move">
+    <span>NAV PLOTTER</span>
+    <span style="display:flex;gap:8px;align-items:center">
+      <span class="dot"></span>
+      <button class="tbtn" id="panelToggle" title="Collapse / expand">▾</button>
+    </span>
+  </div>
+  <div class="pbody">
+    <div class="readout">
+      <span class="lab">True track</span><span class="val amber" id="rTT">— —</span>
+      <span class="lab">Magnetic</span><span class="val" id="rMT">— —</span>
+      <span class="lab">Distance</span><span class="val" id="rDist">— <small>NM</small></span>
+      <span class="lab">Recip</span><span class="val" id="rRecip">— —</span>
+    </div>
+    <div class="row"><label>Mag var °E</label><input type="number" id="magvar" value="5.3" step="0.1"></div>
+    <div class="row"><label>Map scale</label><span class="pill" id="scaleOut">1 : —</span></div>
+    <div class="row"><label>Screen DPI</label><input type="number" id="dpi" value="96" step="1"></div>
+    <div class="btnrow">
+      <button class="btn" id="setScale">Set 1:250k</button>
+      <button class="btn" id="lockScale">Lock 1:250k</button>
+    </div>
+    <div class="btnrow">
+      <button class="btn" id="calibrate">Calibrate screen</button>
+      <button class="btn" id="alignPlotter">Align to line</button>
+    </div>
+
+    <div style="height:1px;background:var(--line);margin:12px 0"></div>
+
+    <div class="phead" style="padding:0 0 8px;border:0"><span>ROUTE</span></div>
+    <div class="row"><input type="text" id="coordInput" placeholder="32 30 N  35 06 E"
+      style="width:100%;background:#0e1116;border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:8px;font-family:var(--mono);font-size:13px"></div>
+    <div class="btnrow">
+      <button class="btn" id="addCoordBtn">Add waypoint</button>
+      <button class="btn" id="finishRouteBtn">Finish route</button>
+    </div>
+    <div class="mini" id="coordHint">Tip: pick the <b>Route</b> tool to click waypoints on the map, or type a fix here. Accepts:<br>32 30 N 35 06 E&nbsp;·&nbsp;3230N 03506E&nbsp;·&nbsp;32.5 35.1</div>
+
+    <div style="height:1px;background:var(--line);margin:12px 0"></div>
+
+    <div class="phead" style="padding:0 0 8px;border:0"><span>WEATHER</span></div>
+    <div class="btnrow">
+      <button class="btn" id="wxCenter">Weather at center</button>
+      <button class="btn" id="wxClear">Clear</button>
+    </div>
+    <div class="mini" id="wxStatus">Pick the <b>WX</b> tool and tap any point, or use “Weather at center”.</div>
+    <div class="mini" style="margin-top:4px">Surface wind/cloud/visibility + winds aloft. Source: Open-Meteo.</div>
+
+    <div style="height:1px;background:var(--line);margin:12px 0"></div>
+
+    <div class="phead" style="padding:0 0 8px;border:0"><span>GPS</span></div>
+    <div class="btnrow">
+      <button class="btn" id="gpsToggle">Turn GPS on</button>
+      <button class="btn" id="gpsCenter">Center on me</button>
+    </div>
+    <div class="row"><label style="min-width:auto">Follow my position</label><input type="checkbox" id="gpsFollow" style="accent-color:var(--accent)"></div>
+    <div class="mini" id="gpsStatus">GPS off.</div>
+
+    <div style="height:1px;background:var(--line);margin:12px 0"></div>
+
+    <div class="phead" style="padding:0 0 8px;border:0"><span>PEN</span></div>
+    <div class="swatches" id="swatches"></div>
+    <div class="row"><label>Width</label><input type="range" id="width" min="2" max="10" value="3"></div>
+
+    <div class="btnrow">
+      <button class="btn" id="saveBtn">Save</button>
+      <button class="btn" id="openBtn">Open</button>
+      <button class="btn warn" id="clearBtn">Clear all</button>
+    </div>
+    <div class="row" id="chartRow" style="display:none">
+      <label>Chart opacity</label><input type="range" id="chartOpacity" min="0" max="100" value="75">
+    </div>
+    <div class="btnrow" id="chartBtns" style="display:none">
+      <button class="btn" id="chartAdjust">Lock corners</button>
+      <button class="btn warn" id="chartRemove">Remove chart</button>
+    </div>
+  </div>
+</div>
+
+<svg id="plotter" viewBox="0 0 360 520"></svg>
+
+<div class="legal">
+  Base map © OpenStreetMap / OpenTopoMap / Esri contributors. <b>Not for navigation.</b>
+  Use the <em>Chart</em> button to overlay your own licensed Israel VFR 1:250 000 chart — this tool does not include copyrighted aeronautical charts.
+</div>
+
+<div id="scalebar"><span id="scaleTxt">— NM</span><div class="bar" id="scaleBarInner"></div></div>
+
+<div class="modal" id="modal"><div class="card" id="modalCard"></div></div>
+
+<input type="file" id="chartInput" accept="image/*" class="hidden">
+<input type="file" id="openInput" accept=".json,application/json" class="hidden">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* ============================================================
+   Israel VFR Plotter  —  single-file web app
+   Map + freehand/route/text annotation + rotatable nav plotter
+   ============================================================ */
+
+// ---------- Map ----------
+const map = L.map('map', { zoomSnap: 0, zoomControl: true, center: [31.4, 35.0], zoom: 8 });
+map.zoomControl.setPosition('topleft');
+
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { maxZoom: 19, attribution: '© OpenStreetMap' });
+const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { maxZoom: 17, subdomains: 'abc', attribution: '© OpenTopoMap (CC-BY-SA)' });
+const imagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 19, attribution: 'Imagery © Esri' });
+topo.addTo(map);
+const layersCtl = L.control.layers({ 'Topographic': topo, 'Street (OSM)': osm, 'Satellite': imagery }, {},
+  { position: 'topleft', collapsed: true }).addTo(map);
+
+// ---- Lat/Lon graticule with N/S/E/W edge labels ----
+const gridLayer = L.layerGroup().addTo(map);
+// Two-tier graticule: heavy labelled lines on the "major" interval (10' when zoomed in),
+// lighter minute-labelled lines on the "minor" interval (5'). Steps coarsen when zoomed out.
+function pickGrid(){
+  const span = (map.getBounds().getEast() - map.getBounds().getWest()) * 60; // minutes
+  const pairs = [
+    {m:5,  M:10}, {m:10, M:30}, {m:15, M:60}, {m:30, M:120},
+    {m:60, M:300}, {m:120, M:600}, {m:300, M:1200}
+  ];
+  for (const p of pairs){ if (span / p.m <= 28) return p; }
+  return pairs[pairs.length-1];
+}
+function dm(v, pos, neg){
+  const dir = v >= 0 ? pos : neg; v = Math.abs(v);
+  let deg = Math.floor(v + 1e-7);
+  let min = Math.round((v - deg) * 60);
+  if (min >= 60){ deg++; min -= 60; }
+  return deg + '°' + String(min).padStart(2,'0') + "'" + dir;
+}
+function minOnly(v){
+  v = Math.abs(v); let deg = Math.floor(v + 1e-7);
+  let min = Math.round((v - deg) * 60); if (min >= 60) min -= 60;
+  return String(min).padStart(2,'0') + "'";
+}
+function fmtLat(v){ return dm(v, 'N', 'S'); }
+function fmtLon(v){ return dm(v, 'E', 'W'); }
+function gridLabel(latlng, text, side, minor){
+  L.marker(latlng, { interactive:false, keyboard:false,
+    icon: L.divIcon({ className:'', iconSize:[0,0],
+      html:'<span class="gl gl-'+side+(minor?' gl-min':'')+'">'+text+'</span>' }) }).addTo(gridLayer);
+}
+function drawGraticule(){
+  if (!map.hasLayer(gridLayer)) return;
+  gridLayer.clearLayers();
+  const b = map.getBounds(), g = pickGrid();
+  const w=b.getWest(), e=b.getEast(), so=b.getSouth(), no=b.getNorth();
+  const isMaj = mm => (((mm % g.M) + g.M) % g.M) === 0;
+  for (let mm = Math.ceil(w*60/g.m)*g.m; mm/60 <= e; mm += g.m){
+    const lng = mm/60, major = isMaj(mm);
+    L.polyline([[so,lng],[no,lng]], { color:'#9aa1aa', weight: major?1.6:0.7, opacity: major?0.85:0.4, interactive:false }).addTo(gridLayer);
+    const lab = major ? fmtLon(lng) : minOnly(lng);
+    gridLabel([no,lng], lab, 'top', !major);
+    gridLabel([so,lng], lab, 'bottom', !major);
+  }
+  for (let mm = Math.ceil(so*60/g.m)*g.m; mm/60 <= no; mm += g.m){
+    const lat = mm/60, major = isMaj(mm);
+    L.polyline([[lat,w],[lat,e]], { color:'#9aa1aa', weight: major?1.6:0.7, opacity: major?0.85:0.4, interactive:false }).addTo(gridLayer);
+    const lab = major ? fmtLat(lat) : minOnly(lat);
+    gridLabel([lat,w], lab, 'left', !major);
+    gridLabel([lat,e], lab, 'right', !major);
+  }
+}
+map.on('moveend zoomend', drawGraticule);
+layersCtl.addOverlay(gridLayer, 'Lat/Lon grid');
+drawGraticule();
+
+
+const container = map.getContainer();
+
+// ---------- State ----------
+let tool = 'pan';
+let penColor = '#e0218a';
+let penWidth = 3;
+const history = [];        // undoable drawn layers (strokes, text, measure)
+let activeRoute = null;    // { fg, pts:[], markers:[], line } while a route is being built
+let measureA = null, measureLine = null, measureTmp = null;
+let chartOverlay = null;
+let lastBearing = null, lastMid = null;
+
+// ---------- Helpers ----------
+function evtLatLng(e){ return map.containerPointToLatLng(map.mouseEventToContainerPoint(e)); }
+
+function bearing(a, b){
+  const r = Math.PI/180;
+  const y = Math.sin((b.lng-a.lng)*r) * Math.cos(b.lat*r);
+  const x = Math.cos(a.lat*r)*Math.sin(b.lat*r) - Math.sin(a.lat*r)*Math.cos(b.lat*r)*Math.cos((b.lng-a.lng)*r);
+  return (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+}
+function nm(a, b){ return map.distance(a, b) / 1852; }
+function magVar(){ return parseFloat(document.getElementById('magvar').value) || 0; }
+function trueToMag(t){ return ((t - magVar()) % 360 + 360) % 360; }
+function fmtDeg(d){ return (d==null) ? '— —' : (Math.round(d).toString().padStart(3,'0') + '°'); }
+
+function metersPerPixel(){
+  const lat = map.getCenter().lat;
+  return 40075016.686 * Math.cos(lat*Math.PI/180) / Math.pow(2, map.getZoom() + 8);
+}
+function screenPxPerMeter(){ const dpi = parseFloat(document.getElementById('dpi').value)||96; return dpi/0.0254; }
+function pixelsPerNM(){ return 1852 / metersPerPixel(); }   // screen px per nautical mile at current zoom
+function mapScaleRatio(){ return metersPerPixel() * screenPxPerMeter(); }
+
+function updateScale(){
+  document.getElementById('scaleOut').textContent = '1 : ' + Math.round(mapScaleRatio()).toLocaleString();
+  updateScaleBar();
+  drawPlotter();
+}
+map.on('zoom move', updateScale);
+
+// ---------- Tool selection ----------
+const toolBtns = document.querySelectorAll('.tool[data-tool]');
+toolBtns.forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+function setTool(t){
+  tool = t;
+  toolBtns.forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+  if (t === 'pan'){ map.dragging.enable(); container.style.cursor=''; }
+  else { container.style.cursor = (t==='text') ? 'text' : 'crosshair'; }
+  // finishing a route when switching away
+  if (t !== 'route') finishRoute();
+}
+
+function finishRoute(){
+  if (activeRoute && activeRoute.pts.length){
+    activeRoute.fg._routePts = activeRoute.pts.slice();   // remember order for save
+    attachErase(activeRoute.fg);     // whole route becomes one undo/clear/erase unit
+    history.push(activeRoute.fg);
+  } else if (activeRoute){
+    map.removeLayer(activeRoute.fg);
+  }
+  activeRoute = null;
+}
+
+// ---------- Drawing via pointer events ----------
+let stroke = null, drawingNow = false;
+
+container.addEventListener('pointerdown', onDown);
+container.addEventListener('pointermove', onMove);
+window.addEventListener('pointerup', onUp);
+
+function onDown(e){
+  if (tool === 'pan' || e.button === 2) return;
+  // Only left button / touch / pen
+  const ll = evtLatLng(e);
+
+  if (tool === 'draw'){
+    map.dragging.disable();
+    drawingNow = true;
+    stroke = L.polyline([ll], { color: penColor, weight: penWidth, opacity: .95, lineJoin:'round', lineCap:'round' }).addTo(map);
+    try { container.setPointerCapture(e.pointerId); } catch(_){}
+  }
+  else if (tool === 'route'){
+    addRoutePoint(ll);
+  }
+  else if (tool === 'text'){
+    const t = prompt('Label text:');
+    if (t){ addText(ll, t); }
+  }
+  else if (tool === 'measure'){
+    handleMeasureClick(ll);
+  }
+  // erase handled per-layer (see attachErase)
+}
+function onMove(e){
+  if (drawingNow && stroke){
+    stroke.addLatLng(evtLatLng(e));
+  }
+}
+function onUp(e){
+  if (drawingNow && stroke){
+    drawingNow = false;
+    if (stroke.getLatLngs().length > 1){ attachErase(stroke); history.push(stroke); }
+    else { map.removeLayer(stroke); }
+    stroke = null;
+    if (tool === 'draw') map.dragging.enable();
+  }
+}
+
+// ---------- Route ----------
+function ensureRoute(){
+  if (!activeRoute){ activeRoute = { fg: L.featureGroup().addTo(map), pts:[], markers:[], legs:[] }; }
+  return activeRoute;
+}
+function addLeg(R, a, b, cum){
+  const tt = bearing(a,b), d = nm(a,b);
+  const leg = L.polyline([a,b], { color: penColor, weight: 3 });
+  const mid = L.latLngBounds(a,b).getCenter();
+  const tip = () => fmtDeg(tt)+'T · '+fmtDeg(trueToMag(tt))+'M · '+d.toFixed(1)+' NM · Σ '+cum.toFixed(1)+' NM';
+  leg.bindTooltip(tip, { sticky:true, direction:'top', opacity:0.95 });
+  leg.on('mouseover', () => { setReadout(tt, d); lastBearing = tt; lastMid = mid; });
+  R.fg.addLayer(leg); R.legs.push(leg);
+}
+function addRoutePoint(ll){
+  const R = ensureRoute();
+  R.pts.push(ll);
+  const idx = R.pts.length;
+  const m = L.circleMarker(ll, { radius:5, color:'#0b0e12', weight:2, fillColor: penColor, fillOpacity:1 });
+  m.bindTooltip('WPT ' + idx, { permanent:false, direction:'top' });
+  R.fg.addLayer(m); R.markers.push(m);
+  if (R.pts.length >= 2){
+    const a = R.pts[R.pts.length-2], b = R.pts[R.pts.length-1];
+    let cum = 0; for (let i=1;i<R.pts.length;i++) cum += nm(R.pts[i-1], R.pts[i]);
+    addLeg(R, a, b, cum);
+    const tt = bearing(a,b), d = nm(a,b);
+    setReadout(tt, d);
+    lastBearing = tt; lastMid = L.latLngBounds(a,b).getCenter();
+  }
+}
+
+// ---------- Add route waypoint by typed coordinates ----------
+function dmsToDeg(p){ const d=+p[0]||0, m=(p[1]!=null?+p[1]:0)||0, s=(p[2]!=null?+p[2]:0)||0; return d + m/60 + s/3600; }
+function compactToDeg(d){ if (d.length<=2 || d.includes('.')) return parseFloat(d); return parseFloat(d.slice(0,-2)) + parseFloat(d.slice(-2))/60; }
+function groupToDeg(str){ str=str.trim(); if (/\s/.test(str)) return dmsToDeg(str.split(/\s+/)); if (str.includes('.')) return parseFloat(str); return compactToDeg(str); }
+function parseCoords(raw){
+  if (!raw) return null;
+  let s = raw.toUpperCase().replace(/[°'"`]/g,' ').replace(/,/g,' ').replace(/\s+/g,' ').trim();
+  if (/[NSEW]/.test(s)){                              // deg/min(/sec) with hemisphere letters
+    let lat=null, lng=null, m;
+    const re = /([0-9.][0-9.\s]*?)\s*([NSEW])/g;
+    while ((m = re.exec(s))){
+      let val = groupToDeg(m[1]); const h = m[2];
+      if (h==='S' || h==='W') val = -val;
+      if (h==='N' || h==='S'){ if (lat===null) lat = val; }
+      else { if (lng===null) lng = val; }
+    }
+    if (lat!==null && lng!==null && isFinite(lat) && isFinite(lng)) return { lat, lng };
+    return null;
+  }
+  const parts = s.split(' ').filter(Boolean);          // plain decimal pair "lat lng"
+  if (parts.length === 2){
+    const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
+    if (isFinite(lat) && isFinite(lng)) return { lat, lng };
+  }
+  return null;
+}
+function addCoordWaypoint(){
+  const inp = document.getElementById('coordInput');
+  const c = parseCoords(inp.value);
+  if (!c){ inp.style.borderColor = 'var(--bad)'; return; }
+  if (Math.abs(c.lat) > 90 || Math.abs(c.lng) > 180){ inp.style.borderColor = 'var(--bad)'; return; }
+  inp.style.borderColor = 'var(--line)';
+  addRoutePoint(L.latLng(c.lat, c.lng));
+  map.panTo([c.lat, c.lng]);
+  inp.value = ''; inp.focus();
+}
+document.getElementById('addCoordBtn').addEventListener('click', addCoordWaypoint);
+document.getElementById('coordInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCoordWaypoint(); });
+document.getElementById('finishRouteBtn').addEventListener('click', () => finishRoute());
+
+// ---------- Text ----------
+function addText(ll, t){
+  const icon = L.divIcon({ className:'', html:
+    '<div style="font:700 13px var(--ui);color:'+penColor+';text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap">'+escapeHtml(t)+'</div>',
+    iconSize:[1,1] });
+  const m = L.marker(ll, { icon, draggable:true }).addTo(map);
+  attachErase(m); history.push(m);
+}
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ---------- Measure ----------
+function handleMeasureClick(ll){
+  if (!measureA){
+    measureA = ll;
+    measureTmp = L.circleMarker(ll, { radius:5, color:'#fff', weight:2, fillColor: '#ffb000', fillOpacity:1 }).addTo(map);
+  } else {
+    if (measureLine){ map.removeLayer(measureLine); }
+    if (measureTmp){ map.removeLayer(measureTmp); measureTmp = null; }
+    measureLine = L.polyline([measureA, ll], { color:'#ffb000', weight:2, dashArray:'6,5' }).addTo(map);
+    const tt = bearing(measureA, ll), d = nm(measureA, ll);
+    measureLine.bindTooltip(fmtDeg(tt)+'  ·  '+d.toFixed(1)+' NM', { permanent:true, direction:'center' });
+    setReadout(tt, d);
+    lastBearing = tt; lastMid = L.latLngBounds(measureA, ll).getCenter();
+    attachErase(measureLine); history.push(measureLine);
+    measureA = null;
+  }
+}
+
+function setReadout(tt, dist){
+  document.getElementById('rTT').textContent   = fmtDeg(tt);
+  document.getElementById('rMT').textContent   = fmtDeg(trueToMag(tt));
+  document.getElementById('rRecip').textContent= fmtDeg((tt+180)%360);
+  document.getElementById('rDist').innerHTML    = dist.toFixed(1) + ' <small>NM</small>';
+}
+document.getElementById('magvar').addEventListener('input', () => {
+  if (lastBearing!=null) document.getElementById('rMT').textContent = fmtDeg(trueToMag(lastBearing));
+});
+
+// ---------- Erase / Undo / Clear ----------
+function attachErase(layer){
+  layer.on('click', (ev) => {
+    if (tool === 'erase'){
+      L.DomEvent.stop(ev);
+      map.removeLayer(layer);
+      const i = history.indexOf(layer); if (i>=0) history.splice(i,1);
+    }
+  });
+}
+document.getElementById('undoBtn').addEventListener('click', () => {
+  // building a route: remove the last waypoint
+  if (activeRoute && activeRoute.pts.length){
+    activeRoute.pts.pop();
+    const m = activeRoute.markers.pop(); if (m) activeRoute.fg.removeLayer(m);
+    const leg = activeRoute.legs.pop(); if (leg) activeRoute.fg.removeLayer(leg);
+    if (!activeRoute.pts.length){ map.removeLayer(activeRoute.fg); activeRoute = null; }
+    return;
+  }
+  // otherwise remove the most recent finished item (stroke, text, measure, or whole route)
+  const last = history.pop(); if (last) map.removeLayer(last);
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (!confirm('Clear all drawings and routes?')) return;
+  history.forEach(l => map.removeLayer(l)); history.length = 0;
+  if (activeRoute){ map.removeLayer(activeRoute.fg); activeRoute = null; }
+  if (measureLine){ map.removeLayer(measureLine); measureLine = null; }
+  if (measureTmp){ map.removeLayer(measureTmp); measureTmp = null; }
+  measureA = null;
+  document.getElementById('rTT').textContent='— —';
+  document.getElementById('rMT').textContent='— —';
+  document.getElementById('rRecip').textContent='— —';
+  document.getElementById('rDist').innerHTML='— <small>NM</small>';
+});
+
+// ---------- Color swatches ----------
+const colors = ['#e0218a','#22d3ee','#ffb000','#ff5d5d','#34d399','#ffffff','#111111'];
+const sw = document.getElementById('swatches');
+colors.forEach((c,i)=>{
+  const el = document.createElement('div');
+  el.className = 'sw' + (i===0?' active':''); el.style.background=c; el.title=c;
+  el.addEventListener('click', ()=>{ penColor=c; document.querySelectorAll('.sw').forEach(s=>s.classList.remove('active')); el.classList.add('active'); });
+  sw.appendChild(el);
+});
+document.getElementById('width').addEventListener('input', e => penWidth = +e.target.value);
+
+// ---------- Scale button ----------
+document.getElementById('setScale').addEventListener('click', () => {
+  const lat = map.getCenter().lat;
+  const targetMPP = 250000 / screenPxPerMeter();           // meters per pixel for 1:250000
+  const z = Math.log2(40075016.686 * Math.cos(lat*Math.PI/180) / targetMPP) - 8;
+  map.setZoom(Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), z)));
+});
+document.getElementById('dpi').addEventListener('input', updateScale);
+
+// ============================================================
+//  THE NAV PLOTTER  —  rotating-azimuth "rolling" plotter
+//  (styled after the ASA CP-RLX: long straightedge, central
+//   rotating azimuth for direct course readout, NM + SM scales,
+//   and a roller to roll it along the course line)
+// ============================================================
+const plotterEl = document.getElementById('plotter');
+const PW = 360, PH = 520, PCX = 180, PCY = 260;     // viewBox + centre (the grommet)
+let plotterShown = false, plotRot = 0;              // straightedge bearing, north-up
+let plotPos = null;                                 // {x,y} top-left in px
+
+document.getElementById('togglePlotter').addEventListener('click', function(){
+  plotterShown = !plotterShown;
+  this.classList.toggle('active', plotterShown);
+  plotterEl.style.display = plotterShown ? 'block' : 'none';
+  if (plotterShown && !plotPos){
+    plotPos = { x: window.innerWidth/2 - PCX, y: window.innerHeight/2 - PCY };
+    applyPlotterTransform();
+  }
+  drawPlotter();
+});
+
+document.getElementById('alignPlotter').addEventListener('click', () => {
+  if (lastBearing == null) return;
+  if (!plotterShown){ document.getElementById('togglePlotter').click(); }
+  plotRot = lastBearing;
+  if (lastMid){ const p = map.latLngToContainerPoint(lastMid); plotPos = { x: p.x-PCX, y: p.y-PCY }; }
+  applyPlotterTransform(); drawPlotter(); updatePlotterReadout();
+});
+
+function applyPlotterTransform(){
+  plotterEl.style.left = plotPos.x + 'px';
+  plotterEl.style.top  = plotPos.y + 'px';
+  plotterEl.style.margin = '0';
+  plotterEl.style.transform = 'rotate(' + plotRot + 'deg)';
+}
+
+function updatePlotterReadout(){
+  if (!plotterShown) return;
+  const tt = ((plotRot % 360) + 360) % 360;
+  document.getElementById('rTT').textContent = fmtDeg(tt);
+  document.getElementById('rMT').textContent = fmtDeg(trueToMag(tt));
+  document.getElementById('rRecip').textContent = fmtDeg((tt+180)%360);
+  lastBearing = tt;
+}
+
+// --- one ruler column of ticks running up the centre line ---
+//     dir +1 = ticks to the left, -1 = ticks to the right
+function rulerColumn(ppu, dir, label){
+  if (!isFinite(ppu) || ppu <= 2) return '';
+  let s = '', n = 0, y = PCY;
+  while (y > 30 && n <= 500){
+    const big = n % 5 === 0, w = big ? 15 : 7;
+    const x2 = PCX - dir * w;
+    s += '<line x1="'+PCX+'" y1="'+y.toFixed(1)+'" x2="'+x2+'" y2="'+y.toFixed(1)+
+         '" stroke="#0a2942" stroke-width="'+(big?1.5:0.8)+'"/>';
+    if (big && n > 0){
+      const tx = PCX - dir * (w + 3);
+      s += '<text x="'+tx+'" y="'+(y+3).toFixed(1)+'" font-size="9" text-anchor="'+(dir>0?'end':'start')+'">'+n+'</text>';
+    }
+    n++; y = PCY - n * ppu;
+  }
+  const lx = PCX - dir * 34;
+  s += '<text x="'+lx+'" y="46" font-size="11" font-weight="700" text-anchor="middle">'+label+'</text>';
+  return s;
+}
+
+// --- the rotating azimuth disc (drawn north-up; counter-rotated in render) ---
+function azimuth(){
+  const R = 104; let s = '';
+  s += '<circle cx="'+PCX+'" cy="'+PCY+'" r="'+R+'" fill="rgba(255,255,255,0.05)" stroke="rgba(11,14,18,0.55)" stroke-width="1"/>';
+  for (let d=0; d<360; d+=5){
+    const a=(d-90)*Math.PI/180;
+    const big=d%30===0, mid=d%10===0, len=big?14:(mid?10:6);
+    const r1=R, r2=R-len;
+    s += '<line x1="'+(PCX+r1*Math.cos(a)).toFixed(1)+'" y1="'+(PCY+r1*Math.sin(a)).toFixed(1)+
+         '" x2="'+(PCX+r2*Math.cos(a)).toFixed(1)+'" y2="'+(PCY+r2*Math.sin(a)).toFixed(1)+
+         '" stroke="rgba(11,14,18,'+(big?0.9:0.5)+')" stroke-width="'+(big?1.4:0.8)+'"/>';
+    if (big){
+      const rt=R-26, lab = d===0?'N':d===90?'E':d===180?'S':d===270?'W':d;
+      s += '<text x="'+(PCX+rt*Math.cos(a)).toFixed(1)+'" y="'+(PCY+rt*Math.sin(a)+4).toFixed(1)+
+           '" font-size="12" text-anchor="middle">'+lab+'</text>';
+    }
+  }
+  return s;
+}
+
+// --- the roller bar (drag to roll the plotter along its course line) ---
+function rollerSVG(){
+  let s = '<g id="roller" style="cursor:ns-resize">';
+  s += '<rect x="126" y="468" width="108" height="22" rx="11" fill="rgba(255,176,0,.92)" stroke="#5e4200" stroke-width="1.2"/>';
+  for (let x=134; x<=226; x+=7) s += '<line x1="'+x+'" y1="471" x2="'+x+'" y2="487" stroke="#5e4200" stroke-width="1"/>';
+  s += '<text x="'+PCX+'" y="504" font-size="9" font-weight="700" text-anchor="middle">ROLLER</text></g>';
+  return s;
+}
+
+function drawPlotter(){
+  if (!plotterShown) return;
+  const ppnm = pixelsPerNM();
+  const ppsm = 1609.344 / metersPerPixel();
+  let s = '';
+  // clear Lexan straightedge body
+  s += '<rect x="118" y="14" width="124" height="492" rx="16" fill="rgba(150,205,255,.10)" stroke="rgba(150,205,255,.55)" stroke-width="1.5"/>';
+  // course line + index arrow (points to the course)
+  s += '<line x1="'+PCX+'" y1="16" x2="'+PCX+'" y2="504" stroke="#ff2d2d" stroke-width="1.6"/>';
+  s += '<polygon points="'+PCX+',8 '+(PCX-7)+',22 '+(PCX+7)+',22" fill="#ff2d2d"/>';
+  // distance scales: NM on the left, SM (statute) on the right — like the CP-RLX faces
+  s += rulerColumn(ppnm, 1, 'NM');
+  s += rulerColumn(ppsm, -1, 'SM');
+  // rotating azimuth, counter-rotated so North always points to map north
+  s += '<g transform="rotate('+(-plotRot)+' '+PCX+' '+PCY+')">'+azimuth()+'</g>';
+  // centre grommet
+  s += '<circle cx="'+PCX+'" cy="'+PCY+'" r="5.5" fill="none" stroke="#0b0e12" stroke-width="1.4"/>';
+  s += '<circle cx="'+PCX+'" cy="'+PCY+'" r="1.6" fill="#0b0e12"/>';
+  // roller + rotate knob
+  s += rollerSVG();
+  s += '<circle id="rotKnob" cx="'+PCX+'" cy="32" r="9" fill="#ff2d2d" stroke="#fff" stroke-width="1.5"/>';
+  plotterEl.innerHTML = s;
+}
+
+// Interactions: drag knob to rotate, drag roller to roll along course, drag body to move
+let pmode=null, pStart=null, rollAxis=null;
+plotterEl.addEventListener('pointerdown', (e)=>{
+  e.stopPropagation();
+  try { plotterEl.setPointerCapture(e.pointerId); } catch(_){}
+  const onRoller = e.target && e.target.closest && e.target.closest('#roller');
+  const cxs = plotPos.x + PCX, cys = plotPos.y + PCY;     // dial centre in screen px (rotation-invariant)
+  const dist = Math.hypot(e.clientX - cxs, e.clientY - cys);
+  if (onRoller){
+    pmode='roll';
+    const r = plotRot*Math.PI/180;
+    rollAxis = { x: Math.sin(r), y: -Math.cos(r) };       // screen direction of the course line
+    pStart = { x:e.clientX, y:e.clientY, px:plotPos.x, py:plotPos.y };
+  } else if (e.target.id === 'rotKnob' || dist <= 112){
+    pmode='rot';                                          // grab anywhere on the dial to spin it
+  } else {
+    pmode='move'; pStart = { x:e.clientX - plotPos.x, y:e.clientY - plotPos.y };
+    plotterEl.classList.add('dragging');
+  }
+});
+plotterEl.addEventListener('pointermove', (e)=>{
+  if (!pmode) return;
+  if (pmode==='move'){
+    plotPos = { x:e.clientX - pStart.x, y:e.clientY - pStart.y };
+    applyPlotterTransform();
+  } else if (pmode==='rot'){
+    const cx = plotPos.x + PCX, cy = plotPos.y + PCY;
+    const ang = Math.atan2(e.clientX - cx, -(e.clientY - cy)) * 180/Math.PI;
+    plotRot = (ang % 360 + 360) % 360;
+    applyPlotterTransform(); drawPlotter(); updatePlotterReadout();
+  } else if (pmode==='roll'){
+    const dx = e.clientX - pStart.x, dy = e.clientY - pStart.y;
+    const proj = dx*rollAxis.x + dy*rollAxis.y;          // move only along the course line
+    plotPos = { x: pStart.px + proj*rollAxis.x, y: pStart.py + proj*rollAxis.y };
+    applyPlotterTransform();
+  }
+});
+plotterEl.addEventListener('pointerup', (e)=>{
+  pmode=null; plotterEl.classList.remove('dragging');
+  try { plotterEl.releasePointerCapture(e.pointerId); } catch(_){}
+});
+// the plotter is screen-anchored; map north stays up so its azimuth reads true track
+
+// ============================================================
+//  CHART OVERLAY  (load your own licensed VFR chart image)
+//  Drag the two corner handles to georeference it to the map.
+// ============================================================
+const chartInput = document.getElementById('chartInput');
+let chartHandles = null, chartSW = null, chartNE = null;
+
+function cornerHandle(latlng){
+  const icon = L.divIcon({ className:'', iconSize:[18,18], iconAnchor:[9,9],
+    html:'<div style="width:14px;height:14px;background:#ffb000;border:2px solid #1a1300;border-radius:3px;box-shadow:0 0 0 2px #000,0 0 6px #000"></div>' });
+  return L.marker(latlng, { icon, draggable:true, zIndexOffset:1000 });
+}
+function showChartHandles(){
+  if (!chartOverlay) return;
+  hideChartHandles();
+  const b = chartOverlay.getBounds(); chartSW = b.getSouthWest(); chartNE = b.getNorthEast();
+  const hSW = cornerHandle(chartSW), hNE = cornerHandle(chartNE);
+  hSW.on('drag', () => { chartSW = hSW.getLatLng(); chartOverlay.setBounds(L.latLngBounds(chartSW, chartNE)); });
+  hNE.on('drag', () => { chartNE = hNE.getLatLng(); chartOverlay.setBounds(L.latLngBounds(chartSW, chartNE)); });
+  hSW.bindTooltip('SW corner', {direction:'left'}); hNE.bindTooltip('NE corner', {direction:'right'});
+  chartHandles = L.layerGroup([hSW, hNE]).addTo(map);
+  document.getElementById('chartAdjust').textContent = 'Lock corners';
+}
+function hideChartHandles(){ if (chartHandles){ map.removeLayer(chartHandles); chartHandles = null; } }
+
+document.getElementById('loadChart').addEventListener('click', () => chartInput.click());
+chartInput.addEventListener('change', () => {
+  const f = chartInput.files[0]; if (!f) return;
+  if (chartOverlay){ map.removeLayer(chartOverlay); hideChartHandles(); }
+  const url = URL.createObjectURL(f);
+  const b = map.getBounds().pad(-0.12);
+  chartOverlay = L.imageOverlay(url, b, { opacity: 0.75, interactive:false }).addTo(map);
+  document.getElementById('chartRow').style.display = 'flex';
+  document.getElementById('chartBtns').style.display = 'flex';
+  document.getElementById('chartOpacity').value = 75;
+  showChartHandles();
+  chartInput.value = '';
+});
+document.getElementById('chartOpacity').addEventListener('input', e => {
+  if (chartOverlay) chartOverlay.setOpacity(e.target.value/100);
+});
+document.getElementById('chartAdjust').addEventListener('click', function(){
+  if (chartHandles){ hideChartHandles(); this.textContent = 'Adjust corners'; }
+  else { showChartHandles(); }
+});
+document.getElementById('chartRemove').addEventListener('click', () => {
+  if (chartOverlay){ map.removeLayer(chartOverlay); chartOverlay = null; }
+  hideChartHandles();
+  document.getElementById('chartRow').style.display = 'none';
+  document.getElementById('chartBtns').style.display = 'none';
+});
+
+// ============================================================
+//  SAVE / OPEN annotations (custom JSON)
+// ============================================================
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const data = { strokes:[], texts:[], routes:[], magvar: magVar() };
+  const ptsToArr = (pts) => pts.map(p=>[p.lat,p.lng]);
+  history.forEach(l => {
+    if (l instanceof L.FeatureGroup){              // a finished route
+      if (l._routePts) data.routes.push(ptsToArr(l._routePts));
+    } else if (l instanceof L.Polyline && l.getLatLngs){
+      const opt = l.options;
+      data.strokes.push({ pts: l.getLatLngs().map(p=>[p.lat,p.lng]), color:opt.color, weight:opt.weight, dash:opt.dashArray||null });
+    } else if (l instanceof L.Marker && l.getLatLng){
+      const html = l.options.icon && l.options.icon.options.html || '';
+      const txt = (html.match(/>([^<]*)</)||[])[1] || '';
+      data.texts.push({ ll:[l.getLatLng().lat, l.getLatLng().lng], text: txt });
+    }
+  });
+  if (activeRoute && activeRoute.pts.length) data.routes.push(ptsToArr(activeRoute.pts));
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'vfr-plan.json'; a.click();
+});
+document.getElementById('openBtn').addEventListener('click', ()=> document.getElementById('openInput').click());
+document.getElementById('openInput').addEventListener('change', (ev)=>{
+  const f = ev.target.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const d = JSON.parse(reader.result);
+      (d.strokes||[]).forEach(s => {
+        const l = L.polyline(s.pts.map(p=>L.latLng(p[0],p[1])), { color:s.color, weight:s.weight, dashArray:s.dash||undefined }).addTo(map);
+        attachErase(l); history.push(l);
+      });
+      (d.texts||[]).forEach(t => addText(L.latLng(t.ll[0],t.ll[1]), t.text));
+      const routes = d.routes || (d.route ? [d.route] : []);
+      routes.forEach(r => { finishRoute(); r.forEach(p => addRoutePoint(L.latLng(p[0],p[1]))); finishRoute(); });
+      if (d.magvar!=null) document.getElementById('magvar').value = d.magvar;
+    }catch(err){ alert('Could not read that file.'); }
+  };
+  reader.readAsText(f);
+  ev.target.value='';
+});
+
+// prevent context menu interfering with drawing
+container.addEventListener('contextmenu', e => e.preventDefault());
+
+// ============================================================
+//  SCALE BAR  (nautical miles + km at current display scale)
+// ============================================================
+function updateScaleBar(){
+  const ppnm = pixelsPerNM(); if (!isFinite(ppnm) || ppnm <= 0) return;
+  const opts = [0.25,0.5,1,2,5,10,20,50,100,200,500];
+  const maxPx = 150; let val = opts[0];
+  for (const o of opts){ if (o*ppnm <= maxPx) val = o; }
+  const px = Math.max(24, Math.round(val*ppnm));
+  const inner = document.getElementById('scaleBarInner');
+  inner.style.width = px + 'px'; inner.innerHTML = '';
+  for (let i=0;i<4;i++) inner.appendChild(document.createElement('i'));
+  const km = val*1.852;
+  document.getElementById('scaleTxt').textContent =
+    val + ' NM · ' + (km>=10 ? Math.round(km) : km.toFixed(1)) + ' km';
+}
+
+// ============================================================
+//  1:250,000 SCALE  (set + lock)
+// ============================================================
+function zoomFor250k(){
+  const lat = map.getCenter().lat;
+  const targetMPP = 250000 / screenPxPerMeter();
+  return Math.log2(40075016.686 * Math.cos(lat*Math.PI/180) / targetMPP) - 8;
+}
+function applyZoom(z){ map.setZoom(Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), z))); }
+
+let scaleLocked = false;
+const lockBtn = document.getElementById('lockScale');
+lockBtn.addEventListener('click', () => {
+  scaleLocked = !scaleLocked;
+  lockBtn.classList.toggle('locked', scaleLocked);
+  lockBtn.textContent = scaleLocked ? 'Unlock scale' : 'Lock 1:250k';
+  if (scaleLocked){
+    applyZoom(zoomFor250k());
+    map.scrollWheelZoom.disable(); map.doubleClickZoom.disable();
+    map.touchZoom.disable(); map.boxZoom.disable();
+    if (map.zoomControl) map.removeControl(map.zoomControl);
+  } else {
+    map.scrollWheelZoom.enable(); map.doubleClickZoom.enable();
+    map.touchZoom.enable(); map.boxZoom.enable();
+    map.addControl(map.zoomControl);
+  }
+});
+
+// ============================================================
+//  SCREEN CALIBRATION  (makes 1:250,000 physically accurate)
+// ============================================================
+const modalEl = document.getElementById('modal'), modalCard = document.getElementById('modalCard');
+function openModal(html){ modalCard.innerHTML = html; modalEl.classList.add('open'); }
+function closeModal(){ modalEl.classList.remove('open'); modalCard.innerHTML = ''; }
+modalEl.addEventListener('click', e => { if (e.target === modalEl) closeModal(); });
+
+document.getElementById('calibrate').addEventListener('click', () => {
+  openModal(
+    '<h3>Calibrate your screen</h3><div class="cbody">' +
+    '<p>Drag until the green bar matches the width of a real credit card (85.6 mm) held flat against the screen. ' +
+    'This makes the 1:250,000 scale physically true on your IdeaPad.</p>' +
+    '<div class="calbar" id="calbar"></div>' +
+    '<input type="range" id="calRange" min="200" max="760" value="324" style="width:100%;accent-color:var(--accent)">' +
+    '<p style="margin-top:10px">Screen DPI: <b id="calDPI" style="color:var(--accent2)">—</b></p>' +
+    '<div class="actions"><button class="btn" id="calCancel">Cancel</button>' +
+    '<button class="btn" id="calSave" style="background:var(--accent);color:#1a1300;border-color:var(--accent)">Save</button></div>' +
+    '</div>');
+  const bar = document.getElementById('calbar'), rng = document.getElementById('calRange'), out = document.getElementById('calDPI');
+  function upd(){ const px=+rng.value; bar.style.width=px+'px'; const dpi=Math.round(px/(85.6/25.4)); out.textContent=dpi; bar.dataset.dpi=dpi; }
+  rng.addEventListener('input', upd); upd();
+  document.getElementById('calCancel').onclick = closeModal;
+  document.getElementById('calSave').onclick = () => {
+    const dpi = bar.dataset.dpi;
+    document.getElementById('dpi').value = dpi;
+    try { localStorage.setItem('vfrDPI', dpi); } catch(_){}
+    if (scaleLocked) applyZoom(zoomFor250k());
+    updateScale(); closeModal();
+  };
+});
+
+// ============================================================
+//  AERONAUTICAL OVERLAY  (OpenAIP — free, worldwide, legal)
+// ============================================================
+let openaip = null;
+function enableAero(key){
+  if (!key) return;
+  if (openaip){ map.removeLayer(openaip); layersCtl.removeLayer(openaip); }
+  openaip = L.tileLayer('https://{s}.api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=' + encodeURIComponent(key),
+    { subdomains:'abc', minZoom:5, minNativeZoom:7, maxNativeZoom:14, maxZoom:19, opacity:1,
+      errorTileUrl:'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', attribution: 'Aeronautical data © OpenAIP (CC BY-NC-SA)' });
+  openaip.addTo(map);
+  layersCtl.addOverlay(openaip, 'Aeronautical (OpenAIP)');
+  document.getElementById('aeroBtn').classList.add('active');
+  try { localStorage.setItem('vfrOpenAIP', key); } catch(_){}
+}
+document.getElementById('aeroBtn').addEventListener('click', () => {
+  let saved = ''; try { saved = localStorage.getItem('vfrOpenAIP') || ''; } catch(_){}
+  openModal(
+    '<h3>Aeronautical overlay — OpenAIP</h3><div class="cbody">' +
+    '<p>Adds airspace, airports, navaids and reporting points as a VFR-style overlay (worldwide, includes Israel). ' +
+    'It is free aeronautical data and needs a free OpenAIP API key.</p>' +
+    '<p>1. Sign up at <a href="https://www.openaip.net" target="_blank" rel="noopener">openaip.net</a>, open your account and generate an API key.<br>' +
+    '2. Paste it below — it stays on this device only.</p>' +
+    '<input type="text" id="aipKey" placeholder="OpenAIP API key" value="' + saved.replace(/"/g,'&quot;') + '">' +
+    '<div class="actions"><button class="btn" id="aipCancel">Cancel</button>' +
+    '<button class="btn" id="aipOk" style="background:var(--accent);color:#1a1300;border-color:var(--accent)">Add overlay</button></div>' +
+    '</div>');
+  document.getElementById('aipCancel').onclick = closeModal;
+  document.getElementById('aipOk').onclick = () => {
+    const k = document.getElementById('aipKey').value.trim();
+    if (k) enableAero(k);
+    closeModal();
+  };
+});
+
+// ============================================================
+//  OPEN VFR (ISRAEL)  —  terrain base + OpenAIP aeronautical layer,
+//  combined into one toggle. Built only from openly-licensed data.
+// ============================================================
+let openVfr = null;
+function ovPref(on){ try { localStorage.setItem('vfrOpenVfrOn', on ? '1' : '0'); } catch(_){} }
+function buildOpenVfr(key){
+  const blank = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+  const terrain = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    { subdomains:'abc', maxZoom:17, attribution:'© OpenTopoMap (CC-BY-SA)' });
+  const aero = L.tileLayer('https://{s}.api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=' + encodeURIComponent(key),
+    { subdomains:'abc', minZoom:5, minNativeZoom:7, maxNativeZoom:14, maxZoom:19, opacity:1, errorTileUrl:blank, attribution:'Aeronautical data © OpenAIP (CC BY-NC-SA)' });
+  openVfr = L.layerGroup([terrain, aero]).addTo(map);
+  layersCtl.addOverlay(openVfr, 'Open VFR (Israel)');
+  document.getElementById('openVfrBtn').classList.add('active');
+  try { localStorage.setItem('vfrOpenAIP', key); } catch(_){}
+  ovPref(true);
+}
+document.getElementById('openVfrBtn').addEventListener('click', function(){
+  if (openVfr){
+    if (map.hasLayer(openVfr)){ map.removeLayer(openVfr); this.classList.remove('active'); ovPref(false); }
+    else { openVfr.addTo(map); this.classList.add('active'); ovPref(true); }
+    return;
+  }
+  let saved = ''; try { saved = localStorage.getItem('vfrOpenAIP') || ''; } catch(_){}
+  if (saved){ buildOpenVfr(saved); return; }
+  openModal(
+    '<h3>Open VFR (Israel)</h3><div class="cbody">' +
+    '<p>Combines a terrain base with the OpenAIP aeronautical layer (airspace, airfields, navaids, reporting points) into one VFR-style map — all openly-licensed data, and it covers Israel.</p>' +
+    '<p>It needs a free OpenAIP key: sign up at <a href="https://www.openaip.net" target="_blank" rel="noopener">openaip.net</a>, generate a key, and paste it below (stored on this device only).</p>' +
+    '<input type="text" id="ovKey" placeholder="OpenAIP API key">' +
+    '<div class="actions"><button class="btn" id="ovCancel">Cancel</button>' +
+    '<button class="btn" id="ovOk" style="background:var(--accent);color:#1a1300;border-color:var(--accent)">Build layer</button></div>' +
+    '</div>');
+  document.getElementById('ovCancel').onclick = closeModal;
+  document.getElementById('ovOk').onclick = () => {
+    const k = document.getElementById('ovKey').value.trim();
+    if (k) buildOpenVfr(k);
+    closeModal();
+  };
+});
+
+// ============================================================
+//  CUSTOM TILE LAYER  (paste any tile URL you are allowed to use)
+//  e.g. a government/open tile service for the Israel CVFR chart.
+// ============================================================
+const customLayers = [];
+function addCustomTiles(url, attr, maxZoom, tms){
+  const layer = L.tileLayer(url, { maxZoom: maxZoom || 18, tms: !!tms,
+    attribution: attr || 'Custom tiles', crossOrigin: true });
+  layer.addTo(map);
+  const name = (attr ? attr : ('Custom layer ' + (customLayers.length + 1))).slice(0, 30);
+  layersCtl.addOverlay(layer, name);
+  customLayers.push(layer);
+  document.getElementById('tilesBtn').classList.add('active');
+}
+document.getElementById('tilesBtn').addEventListener('click', () => {
+  let savedUrl = '', savedAttr = '';
+  try { savedUrl = localStorage.getItem('vfrTileUrl') || ''; savedAttr = localStorage.getItem('vfrTileAttr') || ''; } catch(_){}
+  openModal(
+    '<h3>Add a map tile layer</h3><div class="cbody">' +
+    '<p>Paste a tile URL template. It must contain <b>{z}/{x}/{y}</b> (and optionally <b>{s}</b> for subdomains). ' +
+    'Only use a source you have the right to use — please don\'t hotlink someone else\'s private app server.</p>' +
+    '<input type="text" id="tileUrl" placeholder="https://example.com/tiles/{z}/{x}/{y}.png" value="' + savedUrl.replace(/"/g,'&quot;') + '">' +
+    '<input type="text" id="tileAttr" placeholder="Attribution / source name" value="' + savedAttr.replace(/"/g,'&quot;') + '" style="margin-top:8px">' +
+    '<div class="row" style="margin-top:10px"><label>Max zoom</label><input type="number" id="tileMax" value="16" min="1" max="22"></div>' +
+    '<div class="row"><label style="min-width:auto">TMS (flip Y)</label><input type="checkbox" id="tileTms" style="accent-color:var(--accent)"></div>' +
+    '<div class="actions"><button class="btn" id="tileCancel">Cancel</button>' +
+    '<button class="btn" id="tileOk" style="background:var(--accent);color:#1a1300;border-color:var(--accent)">Add layer</button></div>' +
+    '</div>');
+  document.getElementById('tileCancel').onclick = closeModal;
+  document.getElementById('tileOk').onclick = () => {
+    const url = document.getElementById('tileUrl').value.trim();
+    const attr = document.getElementById('tileAttr').value.trim();
+    const mz = parseInt(document.getElementById('tileMax').value, 10) || 16;
+    const tms = document.getElementById('tileTms').checked;
+    if (!/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/.test(url)){ alert('That URL needs {z}, {x} and {y} placeholders.'); return; }
+    addCustomTiles(url, attr, mz, tms);
+    try { localStorage.setItem('vfrTileUrl', url); localStorage.setItem('vfrTileAttr', attr); } catch(_){}
+    closeModal();
+  };
+});
+
+// ---------- restore saved settings (works when run as a local file) ----------
+try { const d = localStorage.getItem('vfrDPI'); if (d) document.getElementById('dpi').value = d; } catch(_){}
+try {
+  const k = localStorage.getItem('vfrOpenAIP');
+  if (k && localStorage.getItem('vfrOpenVfrOn') !== '0') buildOpenVfr(k);   // bring the VFR overlay back unless it was turned off
+} catch(_){}
+
+// ============================================================
+//  WEATHER  —  point forecast (Open-Meteo; surface + winds aloft)
+// ============================================================
+let wxMarkers = [];
+function wxStatus(t){ document.getElementById('wxStatus').textContent = t; }
+function clearWx(){ wxMarkers.forEach(m => map.removeLayer(m)); wxMarkers = []; }
+
+function skyCond(cc){ if (cc==null) return '—'; if (cc<12) return 'SKC'; if (cc<25) return 'FEW'; if (cc<50) return 'SCT'; if (cc<87) return 'BKN'; return 'OVC'; }
+const WMO = {0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Lt drizzle',53:'Drizzle',55:'Hvy drizzle',61:'Lt rain',63:'Rain',65:'Hvy rain',66:'Frz rain',67:'Frz rain',71:'Lt snow',73:'Snow',75:'Hvy snow',80:'Lt showers',81:'Showers',82:'Hvy showers',95:'Thunderstorm',96:'TS w/ hail',99:'TS w/ hail'};
+function wmoText(c){ return (c!=null && WMO[c]) ? WMO[c] : (c!=null ? ('code '+c) : '—'); }
+function degTxt(d){ return (d!=null && !isNaN(d)) ? (String(Math.round(d)).padStart(3,'0')+'°') : '—'; }
+function windTxt(dir,spd,gust){
+  if (spd==null) return '—';
+  let s = degTxt(dir)+'/'+Math.round(spd)+'kt';
+  if (gust!=null && gust >= spd+5) s += ' G'+Math.round(gust);
+  return s;
+}
+
+async function fetchOpenMeteo(ll){
+  const cur = ['temperature_2m','dew_point_2m','relative_humidity_2m','wind_speed_10m','wind_direction_10m','wind_gusts_10m','cloud_cover','pressure_msl','precipitation','weather_code','visibility'].join(',');
+  const hr  = ['wind_speed_900hPa','wind_direction_900hPa','wind_speed_800hPa','wind_direction_800hPa','wind_speed_700hPa','wind_direction_700hPa'].join(',');
+  const url = 'https://api.open-meteo.com/v1/forecast?latitude='+ll.lat.toFixed(4)+'&longitude='+ll.lng.toFixed(4)+
+    '&current='+cur+'&hourly='+hr+'&wind_speed_unit=kn&timezone=UTC&forecast_days=1';
+  const r = await fetch(url);
+  const d = await r.json();
+  if (d.error) throw new Error(d.reason || 'Open-Meteo error');
+  return d;
+}
+function aloftAt(d){
+  const cur = d.current || {};
+  const ch = (cur.time || '').slice(0,13);
+  const times = (d.hourly && d.hourly.time) || [];
+  let h = times.findIndex(t => t.slice(0,13) === ch); if (h < 0) h = 0;
+  const g = k => (d.hourly && d.hourly[k]) ? d.hourly[k][h] : null;
+  return [
+    { lbl:'~2500 ft', dir:g('wind_direction_900hPa'), spd:g('wind_speed_900hPa') },
+    { lbl:'~6000 ft', dir:g('wind_direction_800hPa'), spd:g('wind_speed_800hPa') },
+    { lbl:'~10000 ft', dir:g('wind_direction_700hPa'), spd:g('wind_speed_700hPa') }
+  ];
+}
+function wxPopupHtml(ll, d){
+  const c = d.current || {};
+  const visKm = (c.visibility!=null) ? (c.visibility/1000) : null;
+  const visTxt = visKm!=null ? (visKm>=10 ? '10+ km' : (visKm.toFixed(1)+' km / '+(c.visibility/1609.34).toFixed(1)+' SM')) : '—';
+  const sky = skyCond(c.cloud_cover);
+  const aloft = aloftAt(d).map(a => '<tr><td style="color:#555;padding-right:10px">'+a.lbl+'</td><td>'+windTxt(a.dir,a.spd,null)+'</td></tr>').join('');
+  const tdew = (c.temperature_2m!=null?Math.round(c.temperature_2m):'—')+'° / '+(c.dew_point_2m!=null?Math.round(c.dew_point_2m):'—')+'°C';
+  return '<div style="min-width:225px;font-family:system-ui">' +
+    '<div style="font-size:13px;font-weight:700;color:#0a8a5f;margin-bottom:5px">WX · '+dm(ll.lat,'N','S')+' '+dm(ll.lng,'E','W')+'</div>' +
+    '<div style="font:12px/1.7 system-ui;color:#222">' +
+      '💨 '+windTxt(c.wind_direction_10m,c.wind_speed_10m,c.wind_gusts_10m)+'<br>' +
+      '☁ '+sky+' ('+(c.cloud_cover!=null?Math.round(c.cloud_cover):'—')+'%) &nbsp; 👁 '+visTxt+'<br>' +
+      '🌡 '+tdew+' &nbsp; ⬇ '+(c.pressure_msl!=null?Math.round(c.pressure_msl)+' hPa':'—')+'<br>' +
+      '🌧 '+(c.precipitation!=null?c.precipitation+' mm':'—')+' &nbsp; '+wmoText(c.weather_code)+'</div>' +
+    '<div style="font:700 10px system-ui;color:#1769aa;margin-top:7px">WINDS ALOFT</div>' +
+    '<table style="font:12px/1.5 monospace;color:#111;margin-top:2px">'+aloft+'</table>' +
+    '<div style="font-size:9px;color:#888;margin-top:6px">Open-Meteo · '+((c.time||'').replace('T',' '))+'Z</div>' +
+    '</div>';
+}
+async function weatherAt(ll){
+  wxStatus('Fetching forecast…');
+  try {
+    const d = await fetchOpenMeteo(ll);
+    const mk = L.circleMarker([ll.lat, ll.lng], { radius:7, color:'#0b0e12', weight:1.5, fillColor:'#22d3ee', fillOpacity:0.95 }).addTo(map);
+    mk.bindPopup(wxPopupHtml(ll, d), { maxWidth: 320 }).openPopup();
+    wxMarkers.push(mk);
+    wxStatus('Updated '+new Date().toISOString().slice(11,16)+'Z · tap more points or Clear.');
+  } catch(e){
+    wxStatus('Forecast fetch failed — check internet and retry.');
+  }
+}
+map.on('click', e => { if (tool === 'wx') weatherAt(e.latlng); });
+document.getElementById('wxCenter').addEventListener('click', () => weatherAt(map.getCenter()));
+document.getElementById('wxClear').addEventListener('click', () => { clearWx(); wxStatus('Cleared. Tap a point with the WX tool, or use “Weather at center”.'); });
+
+
+// ============================================================
+//  GPS  —  show the user's position (toggle on/off)
+// ============================================================
+let gpsId = null, gpsMarker = null, gpsCircle = null, gpsFollow = false, gpsFirst = true;
+function gpsSetStatus(html){ document.getElementById('gpsStatus').innerHTML = html; }
+function gpsUi(on){
+  document.getElementById('gpsBtn').classList.toggle('active', on);
+  document.getElementById('gpsToggle').textContent = on ? 'Turn GPS off' : 'Turn GPS on';
+}
+function gpsIcon(heading){
+  const rot = (heading != null && !isNaN(heading)) ? heading : null;
+  const arrow = rot != null
+    ? '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate('+rot+'deg)"><div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:13px solid #1e90ff;transform:translateY(-15px)"></div></div>'
+    : '';
+  return L.divIcon({ className:'', iconSize:[22,22], iconAnchor:[11,11],
+    html:'<div style="position:relative;width:22px;height:22px">'+arrow+
+      '<div style="position:absolute;left:50%;top:50%;width:14px;height:14px;transform:translate(-50%,-50%);border-radius:50%;background:#1e90ff;border:2px solid #fff;box-shadow:0 0 0 2px rgba(30,144,255,.4),0 0 8px rgba(30,144,255,.7)"></div></div>' });
+}
+function onGps(pos){
+  const c = pos.coords, ll = [c.latitude, c.longitude];
+  if (!gpsMarker){
+    gpsMarker = L.marker(ll, { icon: gpsIcon(c.heading), zIndexOffset:2000, interactive:false }).addTo(map);
+    gpsCircle = L.circle(ll, { radius: c.accuracy||0, color:'#1e90ff', weight:1, fillColor:'#1e90ff', fillOpacity:0.12, interactive:false }).addTo(map);
+  } else {
+    gpsMarker.setLatLng(ll); gpsMarker.setIcon(gpsIcon(c.heading));
+    gpsCircle.setLatLng(ll); gpsCircle.setRadius(c.accuracy||0);
+  }
+  if (gpsFirst || gpsFollow){ map.setView(ll, gpsFirst ? Math.max(map.getZoom(), 12) : map.getZoom()); gpsFirst = false; }
+  const spd = (c.speed != null && !isNaN(c.speed)) ? (c.speed*1.94384).toFixed(0)+' kt' : '—';
+  const hdg = (c.heading != null && !isNaN(c.heading)) ? Math.round(c.heading)+'°' : '—';
+  gpsSetStatus(dm(c.latitude,'N','S')+' &nbsp; '+dm(c.longitude,'E','W')+'<br>±'+Math.round(c.accuracy)+' m &nbsp;·&nbsp; '+spd+' &nbsp;·&nbsp; '+hdg);
+}
+function onGpsErr(err){
+  let msg = 'GPS error.';
+  if (err.code === 1) msg = 'Location permission denied.';
+  else if (err.code === 2) msg = 'Position unavailable.';
+  else if (err.code === 3) msg = 'Location request timed out.';
+  gpsSetStatus(msg + '<br><span style="opacity:.7">Needs HTTPS or localhost — opening the file directly (file://) can block GPS.</span>');
+  if (err.code === 1) stopGps();
+}
+function startGps(){
+  if (!('geolocation' in navigator)){ gpsSetStatus('Geolocation is not supported by this browser.'); return; }
+  gpsFirst = true; gpsUi(true); gpsSetStatus('Acquiring position…');
+  gpsId = navigator.geolocation.watchPosition(onGps, onGpsErr, { enableHighAccuracy:true, maximumAge:1000, timeout:20000 });
+}
+function stopGps(){
+  if (gpsId != null){ navigator.geolocation.clearWatch(gpsId); gpsId = null; }
+  if (gpsMarker){ map.removeLayer(gpsMarker); gpsMarker = null; }
+  if (gpsCircle){ map.removeLayer(gpsCircle); gpsCircle = null; }
+  gpsUi(false); gpsSetStatus('GPS off.');
+}
+function toggleGps(){ if (gpsId != null) stopGps(); else startGps(); }
+document.getElementById('gpsBtn').addEventListener('click', toggleGps);
+document.getElementById('gpsToggle').addEventListener('click', toggleGps);
+document.getElementById('gpsFollow').addEventListener('change', e => { gpsFollow = e.target.checked; });
+document.getElementById('gpsCenter').addEventListener('click', () => {
+  if (gpsMarker){ map.setView(gpsMarker.getLatLng(), Math.max(map.getZoom(), 13)); return; }
+  if (!('geolocation' in navigator)){ gpsSetStatus('Geolocation is not supported.'); return; }
+  gpsSetStatus('Locating…');
+  navigator.geolocation.getCurrentPosition(p => { map.setView([p.coords.latitude, p.coords.longitude], 13); onGps(p); }, onGpsErr, { enableHighAccuracy:true, timeout:20000 });
+});
+
+// ============================================================
+//  MOVABLE + COLLAPSIBLE TOOLBARS
+// ============================================================
+function makeDraggable(el, handle){
+  let dragging=false, sx=0, sy=0, ox=0, oy=0;
+  handle.addEventListener('pointerdown', (e)=>{
+    if (e.target.closest('button')) return;          // let buttons in the handle work
+    const r = el.getBoundingClientRect();
+    el.style.left = r.left+'px'; el.style.top = r.top+'px';
+    el.style.right='auto'; el.style.bottom='auto'; el.style.transform='none'; el.style.margin='0';
+    dragging=true; sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top;
+    try { handle.setPointerCapture(e.pointerId); } catch(_){}
+    e.preventDefault();
+  });
+  handle.addEventListener('pointermove', (e)=>{
+    if (!dragging) return;
+    let nx = ox + (e.clientX - sx), ny = oy + (e.clientY - sy);
+    nx = Math.max(0, Math.min(window.innerWidth  - 44, nx));
+    ny = Math.max(0, Math.min(window.innerHeight - 32, ny));
+    el.style.left = nx+'px'; el.style.top = ny+'px';
+  });
+  handle.addEventListener('pointerup', (e)=>{
+    if (!dragging) return;
+    dragging=false; try { handle.releasePointerCapture(e.pointerId); } catch(_){}
+    saveLayout();
+  });
+}
+makeDraggable(document.getElementById('topbar'), document.getElementById('topbarGrip'));
+makeDraggable(document.getElementById('panel'),  document.getElementById('panelGrip'));
+
+document.getElementById('topbarToggle').addEventListener('click', () => {
+  document.getElementById('topbar').classList.toggle('collapsed'); saveLayout();
+});
+document.getElementById('panelToggle').addEventListener('click', () => {
+  document.getElementById('panel').classList.toggle('collapsed'); saveLayout();
+});
+
+function saveLayout(){
+  try {
+    const tb = document.getElementById('topbar'), pn = document.getElementById('panel');
+    localStorage.setItem('vfrLayout', JSON.stringify({
+      tb:{ left:tb.style.left, top:tb.style.top, collapsed:tb.classList.contains('collapsed') },
+      pn:{ left:pn.style.left, top:pn.style.top, collapsed:pn.classList.contains('collapsed') }
+    }));
+  } catch(_){}
+}
+function restoreLayout(){
+  try {
+    const s = JSON.parse(localStorage.getItem('vfrLayout') || 'null'); if (!s) return;
+    const tb = document.getElementById('topbar'), pn = document.getElementById('panel');
+    if (s.tb){
+      if (s.tb.left){ tb.style.left=s.tb.left; tb.style.top=s.tb.top; tb.style.right='auto'; tb.style.transform='none'; tb.style.margin='0'; }
+      if (s.tb.collapsed) tb.classList.add('collapsed');
+    }
+    if (s.pn){
+      if (s.pn.left){ pn.style.left=s.pn.left; pn.style.top=s.pn.top; pn.style.right='auto'; pn.style.bottom='auto'; }
+      if (s.pn.collapsed) pn.classList.add('collapsed');
+    }
+  } catch(_){}
+}
+restoreLayout();
+
+// init
+updateScale();
+</script>
+</body>
+</html>

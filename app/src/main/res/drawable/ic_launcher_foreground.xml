@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- compass ring -->
+    <path android:strokeColor="#FFB000" android:strokeWidth="3" android:fillColor="#1A1F27"
+        android:pathData="M54,26 a28,28 0 1,1 0,56 a28,28 0 1,1 0,-56 z"/>
+    <!-- tick marks (cardinals) -->
+    <path android:fillColor="#FFB000" android:pathData="M52,28 h4 v8 h-4 z"/>
+    <path android:fillColor="#9AA1AA" android:pathData="M52,72 h4 v8 h-4 z"/>
+    <path android:fillColor="#9AA1AA" android:pathData="M72,52 v4 h8 v-4 z"/>
+    <path android:fillColor="#9AA1AA" android:pathData="M28,52 v4 h8 v-4 z"/>
+    <!-- course needle -->
+    <path android:fillColor="#E0218A" android:pathData="M54,33 L61,55 L54,50 L47,55 Z"/>
+    <path android:fillColor="#EEF3F8" android:pathData="M54,75 L61,53 L54,58 L47,53 Z"/>
+    <!-- hub -->
+    <path android:fillColor="#0E1116" android:strokeColor="#EEF3F8" android:strokeWidth="1.5"
+        android:pathData="M54,51 a3,3 0 1,1 0,6 a3,3 0 1,1 0,-6 z"/>
+</vector>

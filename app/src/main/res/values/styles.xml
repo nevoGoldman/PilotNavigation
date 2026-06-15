@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Splash" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash</item>
+        <item name="android:statusBarColor">@color/ic_bg</item>
+        <item name="android:navigationBarColor">@color/ic_bg</item>
+    </style>
+</resources>
