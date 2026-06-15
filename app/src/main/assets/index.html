@@ -15,15 +15,17 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--ui);overflow:hidden;-webkit-tap-highlight-color:transparent}
-  #map{position:absolute;inset:0;background:#0e1116}
+  /* docked layout: topbar across the top, map + side panel below */
+  body{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto 1fr;
+    grid-template-areas:"topbar topbar" "map panel"}
+  #map{grid-area:map;position:relative;background:#0e1116;min-width:0;min-height:0}
   .leaflet-container{font-family:var(--ui)}
 
   /* ---- Top toolbar ---- */
   #topbar{
-    position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);
-    display:flex;gap:6px;align-items:center;padding:6px;border:1px solid var(--line);
-    background:rgba(22,27,34,.92);backdrop-filter:blur(6px);border-radius:12px;
-    box-shadow:0 8px 30px rgba(0,0,0,.45);max-width:96vw;flex-wrap:wrap;justify-content:center
+    grid-area:topbar;z-index:1000;
+    display:flex;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);
+    background:var(--panel);flex-wrap:wrap;justify-content:center
   }
   .brand{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--accent);
     padding:0 8px 0 4px;border-right:1px solid var(--line);white-space:nowrap}
@@ -42,19 +44,18 @@
     width:26px;height:26px;border-radius:7px;cursor:pointer;font-size:13px;line-height:1;padding:0;
     display:flex;align-items:center;justify-content:center;transition:.12s}
   .tbtn:hover{background:#242c37}
-  .drag-handle{cursor:grab;user-select:none;touch-action:none}
-  .drag-handle:active{cursor:grabbing}
+  .drag-handle{user-select:none}
   #topbar.collapsed .tool,#topbar.collapsed .sep{display:none}
   #topbar.collapsed #topbarToggle{transform:rotate(180deg)}
-  #panel .phead{cursor:grab;user-select:none;touch-action:none}
+  #panel .phead{user-select:none}
   #panel.collapsed .pbody{display:none}
   #panel.collapsed #panelToggle{transform:rotate(180deg)}
 
   /* ---- Side panel ---- */
   #panel{
-    position:absolute;z-index:1000;top:64px;right:10px;width:248px;
-    border:1px solid var(--line);background:rgba(22,27,34,.94);backdrop-filter:blur(6px);
-    border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.45);overflow:hidden
+    grid-area:panel;z-index:1000;width:248px;
+    border-left:1px solid var(--line);background:var(--panel);
+    overflow-y:auto;overflow-x:hidden
   }
   .phead{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;
     border-bottom:1px solid var(--line);font:700 12px/1 var(--ui);letter-spacing:.04em}
@@ -91,7 +92,9 @@
   #plotter text{font-family:var(--mono);fill:#0b0e12;font-weight:700}
   .hidden{display:none!important}
   @media (max-width:760px){
-    #panel{top:auto;bottom:10px;right:10px;left:10px;width:auto}
+    body{grid-template-columns:1fr;grid-template-rows:auto 1fr auto;
+      grid-template-areas:"topbar" "map" "panel"}
+    #panel{width:auto;max-height:42vh;border-left:0;border-top:1px solid var(--line)}
     .legal{display:none}
   }
   .leaflet-control-attribution{font-size:9px}
@@ -133,7 +136,7 @@
 
 <div id="topbar">
   <button class="tbtn" id="topbarToggle" title="Collapse / expand toolbar">▾</button>
-  <div class="brand drag-handle" id="topbarGrip" title="Drag to move"><b>ISRAEL</b> VFR · 1:250k</div>
+  <div class="brand drag-handle" id="topbarGrip"><b>ISRAEL</b> VFR · 1:250k</div>
   <button class="tool active" data-tool="pan" title="Pan / move the map">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>Pan</button>
   <button class="tool" data-tool="draw" title="Freehand pen">
@@ -166,7 +169,7 @@
 </div>
 
 <div id="panel">
-  <div class="phead" id="panelGrip" title="Drag to move">
+  <div class="phead" id="panelGrip">
     <span>NAV PLOTTER</span>
     <span style="display:flex;gap:8px;align-items:center">
       <span class="dot"></span>
@@ -663,7 +666,13 @@ document.getElementById('alignPlotter').addEventListener('click', () => {
   if (lastBearing == null) return;
   if (!plotterShown){ document.getElementById('togglePlotter').click(); }
   plotRot = lastBearing;
-  if (lastMid){ const p = map.latLngToContainerPoint(lastMid); plotPos = { x: p.x-PCX, y: p.y-PCY }; }
+  if (lastMid){
+    // the plotter is positioned in viewport coords, but the map cell is offset
+    // (below the topbar / left of the panel) — add that offset to the container point
+    const rect = map.getContainer().getBoundingClientRect();
+    const p = map.latLngToContainerPoint(lastMid);
+    plotPos = { x: rect.left + p.x - PCX, y: rect.top + p.y - PCY };
+  }
   applyPlotterTransform(); drawPlotter(); updatePlotterReadout();
 });
 
@@ -1240,81 +1249,35 @@ document.getElementById('gpsCenter').addEventListener('click', () => {
 });
 
 // ============================================================
-//  MOVABLE + COLLAPSIBLE TOOLBARS
+//  COLLAPSIBLE TOOLBARS  (docked; collapse hides their contents)
 // ============================================================
-function makeDraggable(el, handle){
-  let dragging=false, sx=0, sy=0, ox=0, oy=0;
-  handle.addEventListener('pointerdown', (e)=>{
-    if (e.target.closest('button')) return;          // let buttons in the handle work
-    const r = el.getBoundingClientRect();
-    el.style.left = r.left+'px'; el.style.top = r.top+'px';
-    el.style.right='auto'; el.style.bottom='auto'; el.style.transform='none'; el.style.margin='0';
-    dragging=true; sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top;
-    try { handle.setPointerCapture(e.pointerId); } catch(_){}
-    e.preventDefault();
-  });
-  handle.addEventListener('pointermove', (e)=>{
-    if (!dragging) return;
-    let nx = ox + (e.clientX - sx), ny = oy + (e.clientY - sy);
-    nx = Math.max(0, Math.min(window.innerWidth  - 44, nx));
-    ny = Math.max(0, Math.min(window.innerHeight - 32, ny));
-    el.style.left = nx+'px'; el.style.top = ny+'px';
-  });
-  handle.addEventListener('pointerup', (e)=>{
-    if (!dragging) return;
-    dragging=false; try { handle.releasePointerCapture(e.pointerId); } catch(_){}
-    saveLayout();
-  });
+function toggleCollapse(el){
+  el.classList.toggle('collapsed');
+  saveLayout();
+  map.invalidateSize();      // docked bars change the map area when collapsed/expanded
 }
-makeDraggable(document.getElementById('topbar'), document.getElementById('topbarGrip'));
-makeDraggable(document.getElementById('panel'),  document.getElementById('panelGrip'));
-
-document.getElementById('topbarToggle').addEventListener('click', () => {
-  document.getElementById('topbar').classList.toggle('collapsed'); saveLayout();
-});
-document.getElementById('panelToggle').addEventListener('click', () => {
-  document.getElementById('panel').classList.toggle('collapsed'); saveLayout();
-});
+document.getElementById('topbarToggle').addEventListener('click', () => toggleCollapse(document.getElementById('topbar')));
+document.getElementById('panelToggle').addEventListener('click',  () => toggleCollapse(document.getElementById('panel')));
 
 function saveLayout(){
   try {
-    const tb = document.getElementById('topbar'), pn = document.getElementById('panel');
     localStorage.setItem('vfrLayout', JSON.stringify({
-      tb:{ left:tb.style.left, top:tb.style.top, collapsed:tb.classList.contains('collapsed') },
-      pn:{ left:pn.style.left, top:pn.style.top, collapsed:pn.classList.contains('collapsed') }
+      tb:{ collapsed: document.getElementById('topbar').classList.contains('collapsed') },
+      pn:{ collapsed: document.getElementById('panel').classList.contains('collapsed') }
     }));
   } catch(_){}
 }
 function restoreLayout(){
   try {
     const s = JSON.parse(localStorage.getItem('vfrLayout') || 'null'); if (!s) return;
-    const tb = document.getElementById('topbar'), pn = document.getElementById('panel');
-    if (s.tb){
-      if (s.tb.left){ tb.style.left=s.tb.left; tb.style.top=s.tb.top; tb.style.right='auto'; tb.style.transform='none'; tb.style.margin='0'; }
-      if (s.tb.collapsed) tb.classList.add('collapsed');
-    }
-    if (s.pn){
-      if (s.pn.left){ pn.style.left=s.pn.left; pn.style.top=s.pn.top; pn.style.right='auto'; pn.style.bottom='auto'; }
-      if (s.pn.collapsed) pn.classList.add('collapsed');
-    }
+    if (s.tb && s.tb.collapsed) document.getElementById('topbar').classList.add('collapsed');
+    if (s.pn && s.pn.collapsed) document.getElementById('panel').classList.add('collapsed');
   } catch(_){}
 }
 restoreLayout();
 
-// ---------- keep movable toolbars on-screen when the screen size/orientation changes ----------
-function clampToViewport(el){
-  // only elements that were moved carry an inline left/top; CSS-docked ones reflow on their own
-  if (!el.style.left && !el.style.top) return;
-  const r = el.getBoundingClientRect();
-  const nx = Math.max(0, Math.min(window.innerWidth  - r.width,  parseFloat(el.style.left) || r.left));
-  const ny = Math.max(0, Math.min(window.innerHeight - r.height, parseFloat(el.style.top)  || r.top));
-  el.style.left = nx + 'px'; el.style.top = ny + 'px';
-}
-function reflowUi(){
-  clampToViewport(document.getElementById('topbar'));
-  clampToViewport(document.getElementById('panel'));
-  map.invalidateSize();
-}
+// ---------- re-fit the map when the screen size / orientation changes ----------
+function reflowUi(){ map.invalidateSize(); }
 window.addEventListener('resize', reflowUi);
 window.addEventListener('orientationchange', () => setTimeout(reflowUi, 200));
 
