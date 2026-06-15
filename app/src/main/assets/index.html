@@ -193,10 +193,10 @@
   <button class="tool" id="gpsBtn" title="GPS: show my position on the map (on/off)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>GPS</button>
   <span class="sep"></span>
-  <button class="tool proc-normal" id="procNormalBtn" title="הליכים רגילים">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>רגילים</button>
-  <button class="tool proc-emerg" id="procEmergBtn" title="הליכי חירום">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>חירום</button>
+  <button class="tool proc-normal" id="procNormalBtn" title="Normal procedures (הליכים רגילים)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>Normal</button>
+  <button class="tool proc-emerg" id="procEmergBtn" title="Emergency procedures (הליכי חירום)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>Emergency</button>
   <button class="tool" id="undoBtn" title="Undo">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg>Undo</button>
 </div>
@@ -290,7 +290,7 @@
 <div id="scalebar"><span id="scaleTxt">— NM</span><div class="bar" id="scaleBarInner"></div></div>
 
 <div id="procPage">
-  <div id="procHead"><span id="procTitle"></span><button id="procClose" title="סגור">✕ סגור</button></div>
+  <div id="procHead"><span id="procTitle"></span><button id="procClose" title="Close">✕ Close</button></div>
   <div id="procBody"></div>
 </div>
 
@@ -1387,7 +1387,7 @@ const PROC = {
         'מדפים – למעלה','מקזז – מצב המראה','חימום מאייד – קר','זע"ט – STBY' ] },
       { h:'הדממת מנוע', steps:[
         'בלמי חנייה – הפעל','מצערת – 1000 סל"ד','ניווט וקשר – OFF','תערובת – ענייה/סגור',
-        'מדפים – למעלה' ] },
+        'מדפים – מעל 60 קשר הרם בהדרגה' ] },
       { h:'לאחר עצירת מדחף', steps:[
         'מצתים – OFF','תאורה – OFF','מתג ראשי – OFF' ] }
     ]
