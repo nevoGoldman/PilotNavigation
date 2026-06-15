@@ -403,13 +403,33 @@ function finishRoute(){
 
 // ---------- Drawing via pointer events ----------
 let stroke = null, drawingNow = false;
+const activeTouches = new Set();      // currently-down touch pointers (for pinch detection)
+let tap = null;                       // pending tap for route/text/measure on touch
+const TAP_TOOLS = { route:1, text:1, measure:1 };   // tools that drop a point on a single tap
 
 container.addEventListener('pointerdown', onDown);
 container.addEventListener('pointermove', onMove);
 window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+
+function commitTap(ll){
+  if (tool === 'route') addRoutePoint(ll);
+  else if (tool === 'text'){ const t = prompt('Label text:'); if (t){ addText(ll, t); } }
+  else if (tool === 'measure') handleMeasureClick(ll);
+}
 
 function onDown(e){
+  if (e.pointerType === 'touch') activeTouches.add(e.pointerId);
   if (tool === 'pan' || e.button === 2) return;
+
+  // A second finger means a pinch — abort any pending tap / stroke and let the
+  // map zoom instead of dropping waypoints.
+  if (e.pointerType === 'touch' && activeTouches.size > 1){
+    tap = null;
+    if (drawingNow && stroke){ map.removeLayer(stroke); stroke = null; drawingNow = false; map.dragging.enable(); }
+    return;
+  }
+
   // Only left button / touch / pen
   const ll = evtLatLng(e);
 
@@ -419,30 +439,37 @@ function onDown(e){
     stroke = L.polyline([ll], { color: penColor, weight: penWidth, opacity: .95, lineJoin:'round', lineCap:'round' }).addTo(map);
     try { container.setPointerCapture(e.pointerId); } catch(_){}
   }
-  else if (tool === 'route'){
-    addRoutePoint(ll);
-  }
-  else if (tool === 'text'){
-    const t = prompt('Label text:');
-    if (t){ addText(ll, t); }
-  }
-  else if (tool === 'measure'){
-    handleMeasureClick(ll);
+  else if (TAP_TOOLS[tool]){
+    if (e.pointerType === 'touch'){
+      // defer until pointerup so a 2nd finger can turn this into a pinch-zoom
+      tap = { ll, x:e.clientX, y:e.clientY, moved:false };
+    } else {
+      commitTap(ll);                 // mouse / pen: act immediately
+    }
   }
   // erase handled per-layer (see attachErase)
 }
 function onMove(e){
   if (drawingNow && stroke){
     stroke.addLatLng(evtLatLng(e));
+    return;
   }
+  // a tap that moves too far is a pan (or the start of a pinch), not a waypoint
+  if (tap && (Math.abs(e.clientX - tap.x) > 12 || Math.abs(e.clientY - tap.y) > 12)) tap.moved = true;
 }
 function onUp(e){
+  if (e.pointerType === 'touch') activeTouches.delete(e.pointerId);
   if (drawingNow && stroke){
     drawingNow = false;
     if (stroke.getLatLngs().length > 1){ attachErase(stroke); history.push(stroke); }
     else { map.removeLayer(stroke); }
     stroke = null;
     if (tool === 'draw') map.dragging.enable();
+  }
+  if (tap){
+    // commit only a clean single-finger tap (no pan, no second finger)
+    if (!tap.moved && activeTouches.size === 0) commitTap(tap.ll);
+    tap = null;
   }
 }
 
@@ -1273,6 +1300,23 @@ function restoreLayout(){
   } catch(_){}
 }
 restoreLayout();
+
+// ---------- keep movable toolbars on-screen when the screen size/orientation changes ----------
+function clampToViewport(el){
+  // only elements that were moved carry an inline left/top; CSS-docked ones reflow on their own
+  if (!el.style.left && !el.style.top) return;
+  const r = el.getBoundingClientRect();
+  const nx = Math.max(0, Math.min(window.innerWidth  - r.width,  parseFloat(el.style.left) || r.left));
+  const ny = Math.max(0, Math.min(window.innerHeight - r.height, parseFloat(el.style.top)  || r.top));
+  el.style.left = nx + 'px'; el.style.top = ny + 'px';
+}
+function reflowUi(){
+  clampToViewport(document.getElementById('topbar'));
+  clampToViewport(document.getElementById('panel'));
+  map.invalidateSize();
+}
+window.addEventListener('resize', reflowUi);
+window.addEventListener('orientationchange', () => setTimeout(reflowUi, 200));
 
 // init
 updateScale();
