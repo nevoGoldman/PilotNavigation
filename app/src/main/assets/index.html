@@ -129,6 +129,34 @@
   .gl-left{transform:translate(4px,-50%)}
   .gl-right{transform:translate(calc(-100% - 4px),-50%)}
   .gl-min{font-size:12px;font-weight:600;color:#c2c8d0}
+
+  /* ---- Procedure buttons (green = normal, alarming red = emergency) ---- */
+  .tool.proc-normal{background:#16a34a;color:#fff;border-color:#16a34a}
+  .tool.proc-normal:hover{background:#138a3e;border-color:#138a3e}
+  .tool.proc-emerg{background:#e11d2a;color:#fff;border-color:#e11d2a;animation:procPulse 1.8s ease-out infinite}
+  .tool.proc-emerg:hover{background:#c4121f;border-color:#c4121f}
+  @keyframes procPulse{0%,100%{box-shadow:0 0 0 0 rgba(225,29,42,.55)}50%{box-shadow:0 0 0 5px rgba(225,29,42,0)}}
+
+  /* ---- Full-screen procedure page ---- */
+  #procPage{position:fixed;inset:0;z-index:3000;display:none;flex-direction:column;
+    background:#0b0f14;color:#f3f6fa;direction:rtl;
+    font-family:"Segoe UI","Noto Sans Hebrew","Arial Hebrew",Arial,system-ui,sans-serif}
+  #procPage.open{display:flex}
+  #procHead{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:14px 18px;font-size:22px;font-weight:800;color:#fff;flex:0 0 auto}
+  #procHead.normal{background:#16a34a}
+  #procHead.emerg{background:#e11d2a}
+  #procClose{appearance:none;border:0;background:rgba(0,0,0,.28);color:#fff;font-size:20px;
+    font-weight:700;min-width:42px;height:42px;border-radius:10px;cursor:pointer;line-height:1;padding:0 12px}
+  #procBody{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:18px 20px 48px}
+  #procBody section{margin:0 0 24px;max-width:780px}
+  #procBody h2{font-size:21px;font-weight:800;margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid currentColor}
+  #procBody.normal h2{color:#34d399}
+  #procBody.emerg h2{color:#ff6b6b}
+  #procBody ol{margin:0;padding-inline-start:30px;font-size:19px;line-height:1.9}
+  #procBody li{margin:4px 0}
+  #procBody li b{color:#fff;font-weight:800}
+  #procBody ol ol{padding-inline-start:26px;font-size:17px;list-style:lower-alpha;color:#cbd4de;line-height:1.7}
 </style>
 </head>
 <body>
@@ -164,6 +192,11 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 18 18z"/></svg>WX</button>
   <button class="tool" id="gpsBtn" title="GPS: show my position on the map (on/off)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>GPS</button>
+  <span class="sep"></span>
+  <button class="tool proc-normal" id="procNormalBtn" title="הליכים רגילים">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>רגילים</button>
+  <button class="tool proc-emerg" id="procEmergBtn" title="הליכי חירום">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>חירום</button>
   <button class="tool" id="undoBtn" title="Undo">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7 4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg>Undo</button>
 </div>
@@ -255,6 +288,11 @@
 </div>
 
 <div id="scalebar"><span id="scaleTxt">— NM</span><div class="bar" id="scaleBarInner"></div></div>
+
+<div id="procPage">
+  <div id="procHead"><span id="procTitle"></span><button id="procClose" title="סגור">✕ סגור</button></div>
+  <div id="procBody"></div>
+</div>
 
 <div class="modal" id="modal"><div class="card" id="modalCard"></div></div>
 
@@ -1280,6 +1318,127 @@ restoreLayout();
 function reflowUi(){ map.invalidateSize(); }
 window.addEventListener('resize', reflowUi);
 window.addEventListener('orientationchange', () => setTimeout(reflowUi, 200));
+
+// ============================================================
+//  PROCEDURE PAGES  (Cessna 172P — normal + emergency checklists)
+// ============================================================
+const PROC = {
+  normal: {
+    title: 'הליכים רגילים — ססנה 172P',
+    sections: [
+      { h:'לפני התנעה', steps:[
+        'הגאים – חופשיים','מכשירים – שלמות','מד גובה – גובה השדה','משאבת תיחול – נעולה',
+        'מתג ראשי – OFF','מצתים – OFF','מתג AVIONICS – OFF','מתגי תאורה – OFF',
+        'אוויר למאייד – קר','מצערת – סגורה','תערובת – עשירה','ברז דלק – פתוח',
+        'מקזז – תנועה חופשית, מצב המראה' ] },
+      { h:'התנעה', steps:[
+        'מתג ראשי BAT – ON','נורית טעינה – דולקת','רדיו – הפעל, רשות התנעה, כבה',
+        'תיחול – כנדרש','בלמי חניה – לחץ','משואה – ON','אורות ניווט – בלילה ON',
+        'מצערת – מעט פנימה','מצתים – Both','מתנע – הפעל ושחרר' ] },
+      { h:'אחרי התנעה', steps:[
+        'מצערת – 1000 סל"ד','לחץ שמן – עולה תוך 30 שניות','אלטרנטור – On, בדוק טעינה',
+        'רדיו – הפעל (מפסק אוויוניקה)','זע"ט – STBY','מדפים – בדיקה בשלבים, מעלה',
+        'מד גובה – כייל לשדה','ג\'יירו כיוון – אפס','טעינה – בדוק צריכה' ] },
+      { h:'הסעה', steps:[
+        'רשות','אור הסעה (בלילה)','שטח נקי','בלמים – בדוק','מד שיעור פנייה – מגיב',
+        'הגאים – בהתאם לרוח' ] },
+      { h:'בדיקת מנוע (לפני התיישרות)', steps:[
+        'מצערת – 1000 סל"ד','בלמים – לחץ','מצערת – 1700 סל"ד','יניקה ומכשירי מנוע – טווח ירוק',
+        'טעינה – חיובית','מצתים – בדוק (נפילת RPM קטנה מ-125, הפרש קטן מ-50)',
+        'חימום מאייד – הפעל, ודא נפילת סל"ד, הפסק','מצערת – בדוק סרק' ] },
+      { h:'לפני המראה', steps:[
+        'ברז דלק – שניהם, פתוח','משאבת תיחול – נעולה','מתג ראשי – שניהם ON','מצתים – Both',
+        'חימום מאייד – קר','תערובת – עשירה (מתחת ל-3000 רגל)','תאורות – כנדרש',
+        'מדפים – 0 (המראה רגילה)','מקזז – מצב TO (המראה)','מכשירים – טווח ירוק',
+        'מצפן ג\'יירו – אפס','מד גובה – גובה שדה','זע"ט – ALT (מוד C)','רדיו – רשות להתיישר' ] },
+      { h:'המראה רגילה', steps:[
+        'מדפים – 0 מעלות','מצערת – כח מלא, סל"ד במגבלות','מכשירי מנוע – טווח ירוק',
+        'מהירות – עולה','הרם גלגל אף – 55 קשר','מהירות טיפוס – 70-85 קשר' ] },
+      { h:'המראה קצרה', steps:[
+        'מדפים – 10 מעלות','בלמים – לחץ','מצערת – כח מלא, סל"ד במגבלות','מכשירי מנוע – טווח ירוק',
+        'בלמים – שחרר','מהירות – עולה','הרם גלגל אף – 55 קשר',
+        'מהירות טיפוס – 57 קשר (עד מעבר מכשולים)' ] },
+      { h:'אחרי המראה', steps:[
+        'מהירות – עולה','שיעור נסיקה – חיובי','בלמים – לחץ ושחרר',
+        'מדפים – קפל (מעל 200 רגל מעפ"ש)' ] },
+      { h:'טיפוס בנתיב', steps:[
+        'מהירות – 70-85 קשרים','מצערת – מלאה','תערובת – עשירה (מעל 3000 רגל דלל למקסימום סל"ד)' ] },
+      { h:'שיוט', steps:[
+        'כח מנוע – 2100-2700 סל"ד (רצוי 2200-2400)','מקזז – כוונן','תערובת – דלל מעל 3000 רגל' ] },
+      { h:'הנמכה', steps:[
+        'ברז דלק – פתוח, על שני המכלים','כח מנוע – ע"פ הצורך 1500-1700 סל"ד','מהירות – 80-90 קשר',
+        'תערובת – כוונן (לפעולה סדירה), עשירה בסרק','חימום מאייד – הפעל ע"פ הצורך' ] },
+      { h:'לפני נחיתה (עם הרוח)', steps:[
+        'רדיו – דווח','מעצורים – בדוק','דלק – כמויות','מתג ראשי – ON','משאבת תיחול – נעולה',
+        'מצתים – BOTH','חימום מאייד – קר (חם לפני הורדת הכח)','תערובת – עשירה',
+        'מכשירי מנוע – טווח ירוק' ] },
+      { h:'נחיתה רגילה (צלע בסיס)', steps:[
+        'מצערת – כנדרש','חימום מאייד – כנדרש',
+        { t:'מדפים – כנדרש', sub:['10 מעלות מתחת ל-110 קשר','10-30 מעלות מתחת ל-85 קשר'] },
+        'גלישה – 60-70 קשר','קיזוז – לגלישה' ] },
+      { h:'נחיתה רגילה (פיינל)', steps:[
+        'רדיו – דווח',
+        { t:'מדפים – כנדרש', sub:['10 מעלות מתחת ל-110 קשר','10-30 מעלות מתחת ל-85 קשר'] },
+        'מהירות עם מלוא מדפים – 60-65 קשר','נגיעה – ראשיים תחילה','בלמים – מינימום נדרש' ] },
+      { h:'הליכה סביב', steps:[
+        'מצערת – מלאה','חימום מאייד – קר','מדפים – קפל ל-20','מהירות – 60 קשר',
+        'מדפים – מעל 60 קשר הרם בהדרגה' ] },
+      { h:'אחרי נחיתה', steps:[
+        'מדפים – למעלה','מקזז – מצב המראה','חימום מאייד – קר','זע"ט – STBY' ] },
+      { h:'הדממת מנוע', steps:[
+        'בלמי חנייה – הפעל','מצערת – 1000 סל"ד','ניווט וקשר – OFF','תערובת – ענייה/סגור',
+        'מדפים – למעלה' ] },
+      { h:'לאחר עצירת מדחף', steps:[
+        'מצתים – OFF','תאורה – OFF','מתג ראשי – OFF' ] }
+    ]
+  },
+  emerg: {
+    title: 'הליכי חירום — ססנה 172P · זע"ט 7700',
+    sections: [
+      { h:'אש במנוע באוויר', steps:[
+        'תערובת – ענייה','ברז דלק – OFF','מתג ראשי – OFF','חימום תא ופתחי אוורור – סגור',
+        'מהירות – 100 קשר','רדיו – הודע','נחת נחיתת חירום' ] },
+      { h:'שריפה חשמלית', steps:[
+        'מתג ראשי – OFF','חימום תא ופתחי אוורור – סגור','מטף – הפעל','רדיו – הודע',
+        'נחת בהקדם האפשרי' ] },
+      { h:'כביית מנוע – מייד אחרי המראה', steps:[
+        'מהירות – 70 קשר (מדפים מעלה), 65 קשר (מדפים מלא מטה)','תערובת – ענייה','ברז דלק – OFF',
+        'מצתים – OFF','מדפים – מלא מטה','רדיו – הודע','מתג ראשי – OFF' ] },
+      { h:'כביית מנוע – בטיסה', steps:[
+        'מהירות – מיטבית לגלישה','שדה – בחר','ברז דלק – שניהם, פתוח','משאבת תיחול – נעולה',
+        'מצתים – שניהם','תערובת – עשירה','חימום מאייד – חם','רדיו – הודע','מתג ראשי – OFF',
+        'בצע נחיתת אונס' ] },
+      { h:'נחיתת אונס – נחיתה ללא כח', steps:[
+        'מהירות – 75 קשר (ללא מדפים), 70 קשר (מדפים מלא מטה)','שדה – תכנן גישה מול הרוח',
+        'ברז דלק – OFF','תערובת – ענייה','מצתים – OFF','מדפים – מלא מטה','רדיו – הודע',
+        'מתג ראשי – OFF' ] }
+    ]
+  }
+};
+function procStepHtml(s){
+  const txt = (typeof s === 'string') ? s : s.t;
+  const i = txt.indexOf(' – ');
+  const main = (i > 0) ? '<b>'+escapeHtml(txt.slice(0,i))+'</b> – '+escapeHtml(txt.slice(i+3)) : escapeHtml(txt);
+  if (typeof s === 'string' || !s.sub) return '<li>'+main+'</li>';
+  return '<li>'+main+'<ol>'+s.sub.map(x=>'<li>'+escapeHtml(x)+'</li>').join('')+'</ol></li>';
+}
+function openProc(which){
+  const d = PROC[which];
+  document.getElementById('procTitle').textContent = d.title;
+  document.getElementById('procHead').className = which;
+  const body = document.getElementById('procBody');
+  body.className = which;
+  body.innerHTML = d.sections.map(sec =>
+    '<section><h2>'+escapeHtml(sec.h)+'</h2><ol>'+sec.steps.map(procStepHtml).join('')+'</ol></section>'
+  ).join('');
+  body.scrollTop = 0;
+  document.getElementById('procPage').classList.add('open');
+}
+function closeProc(){ document.getElementById('procPage').classList.remove('open'); }
+document.getElementById('procNormalBtn').addEventListener('click', () => openProc('normal'));
+document.getElementById('procEmergBtn').addEventListener('click', () => openProc('emerg'));
+document.getElementById('procClose').addEventListener('click', closeProc);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeProc(); });
 
 // init
 updateScale();
