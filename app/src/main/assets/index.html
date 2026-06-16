@@ -1517,32 +1517,54 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeProc();
 // ============================================================
 //  IN-FLIGHT MODE  (live HUD + route progress + flight recording)
 // ============================================================
-let flightMode = false, flightTrack = [], flightStart = 0, flightDist = 0,
-    flightMaxAlt = 0, flightLastLL = null, flightRoute = [], flightTargetIdx = 1,
+let flightMode = false, flightStarted = false, flightTrack = [], flightStart = 0, flightDist = 0,
+    flightMaxAlt = 0, flightLastLL = null, flightArmPrev = null, flightRoute = [], flightTargetIdx = 1,
     flownLine = null, flightTimer = null, histLayer = null;
+const MOVE_THRESHOLD_KT = 25;   // recording auto-starts once ground speed exceeds this (skips idle/taxi)
 
 function recordFix(c){
   const now = Date.now();
   const ll = L.latLng(c.latitude, c.longitude);
+  // ground speed: prefer the device value, else derive it from movement between fixes
+  let gsKt = (c.speed != null && !isNaN(c.speed)) ? c.speed * 1.94384 : null;
+  if (gsKt == null && flightArmPrev){
+    const dt = (now - flightArmPrev.t) / 1000;
+    if (dt > 0) gsKt = nm(flightArmPrev.ll, ll) / (dt / 3600);
+  }
+  flightArmPrev = { ll, t: now };
+
+  // armed but not yet moving: show live data, don't record taxi/idle
+  if (!flightStarted){
+    updateFlightHud(c, gsKt);
+    if (gsKt != null && gsKt >= MOVE_THRESHOLD_KT){
+      flightStarted = true;
+      flightStart = Date.now();
+      flightTrack = []; flightDist = 0; flightMaxAlt = 0; flightLastLL = null;
+    } else {
+      document.getElementById('fhStatus').textContent =
+        'Armed — recording starts at ' + MOVE_THRESHOLD_KT + ' kt (now ' + (gsKt != null ? Math.round(gsKt) : 0) + ' kt)';
+      return;
+    }
+  }
+
   if (flightLastLL) flightDist += nm(flightLastLL, ll);
   flightLastLL = ll;
   const altFt = (c.altitude != null && !isNaN(c.altitude)) ? c.altitude * 3.28084 : null;
   if (altFt != null && altFt > flightMaxAlt) flightMaxAlt = altFt;
-  const spdKt = (c.speed != null && !isNaN(c.speed)) ? c.speed * 1.94384 : null;
   flightTrack.push([+c.latitude.toFixed(5), +c.longitude.toFixed(5),
-    altFt != null ? Math.round(altFt) : null, spdKt != null ? +spdKt.toFixed(1) : null, now]);
+    altFt != null ? Math.round(altFt) : null, gsKt != null ? +gsKt.toFixed(1) : null, now]);
   if (flownLine) flownLine.addLatLng(ll);
-  updateFlightHud(c);
+  updateFlightHud(c, gsKt);
 }
-function updateFlightHud(c){
+function updateFlightHud(c, gsKt){
   const hdgT = (c && c.heading != null && !isNaN(c.heading)) ? c.heading : null;
   document.getElementById('fhHdg').textContent = (hdgT != null) ? fmtDeg(trueToMag(hdgT)) : '— —';
   document.getElementById('fhTrk').textContent = (hdgT != null) ? fmtDeg(hdgT) : '— —';
   const altFt = (c && c.altitude != null && !isNaN(c.altitude)) ? Math.round(c.altitude * 3.28084) : null;
   document.getElementById('fhAlt').innerHTML = (altFt != null ? altFt : '—') + ' <small>ft</small>';
-  const gsKt = (c && c.speed != null && !isNaN(c.speed)) ? Math.round(c.speed * 1.94384) : null;
-  document.getElementById('fhGs').innerHTML = (gsKt != null ? gsKt : '—') + ' <small>kt</small>';
-  updateFlightProgress(c ? L.latLng(c.latitude, c.longitude) : null, gsKt);
+  if (gsKt === undefined) gsKt = (c && c.speed != null && !isNaN(c.speed)) ? c.speed * 1.94384 : null;
+  document.getElementById('fhGs').innerHTML = (gsKt != null ? Math.round(gsKt) : '—') + ' <small>kt</small>';
+  updateFlightProgress(c ? L.latLng(c.latitude, c.longitude) : null, gsKt != null ? Math.round(gsKt) : null);
 }
 function updateFlightProgress(cur, gsKt){
   const el = document.getElementById('fhProg');
@@ -1562,8 +1584,8 @@ function updateFlightProgress(cur, gsKt){
     '<div>Remaining: <b>' + remaining.toFixed(1) + ' NM</b>' + (eta != null ? ' · ETA <b>' + eta + ' min</b>' : '') + '</div>';
 }
 function startFlight(){
-  flightMode = true;
-  flightTrack = []; flightStart = Date.now(); flightDist = 0; flightMaxAlt = 0; flightLastLL = null;
+  flightMode = true; flightStarted = false;
+  flightTrack = []; flightStart = 0; flightDist = 0; flightMaxAlt = 0; flightLastLL = null; flightArmPrev = null;
   flightRoute = routeForSummary().map(p => L.latLng(p.lat, p.lng));
   flightTargetIdx = 1;
   flownLine = L.polyline([], { color:'#22d3ee', weight:3, opacity:.9 }).addTo(map);
@@ -1575,9 +1597,9 @@ function startFlight(){
   document.getElementById('flyBtn').classList.add('active');
   map.invalidateSize();
   updateFlightHud(null);
-  document.getElementById('fhStatus').textContent = 'Recording · waiting for GPS…';
+  document.getElementById('fhStatus').textContent = 'Armed — recording starts when moving (≥' + MOVE_THRESHOLD_KT + ' kt)';
   flightTimer = setInterval(() => {
-    if (!flightMode) return;
+    if (!flightMode || !flightStarted) return;
     const sec = Math.round((Date.now() - flightStart) / 1000);
     document.getElementById('fhStatus').textContent =
       'Recording · ' + fmtDur(sec) + ' · ' + flightTrack.length + ' fixes · ' + flightDist.toFixed(1) + ' NM';
@@ -1586,7 +1608,7 @@ function startFlight(){
 function endFlight(){
   flightMode = false;
   if (flightTimer){ clearInterval(flightTimer); flightTimer = null; }
-  if (flightTrack.length >= 2){
+  if (flightStarted && flightTrack.length >= 2){
     const end = Date.now();
     const rec = {
       id: flightStart,
