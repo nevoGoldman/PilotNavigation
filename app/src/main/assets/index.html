@@ -95,6 +95,31 @@
   .rs-total{margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:700}
   .rs-cur{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-family:var(--mono);font-size:11px;color:var(--muted)}
   .rs-cur b{color:var(--accent)}
+  /* in-flight HUD (replaces the normal panel body while flying) */
+  #flightHud{display:none}
+  #panel.flying #flightHud{display:block}
+  #panel.flying .pbody > :not(#flightHud){display:none}
+  #flightHud .fh-row{display:flex;gap:10px;margin-bottom:10px}
+  #flightHud .fh-cell{flex:1;background:#0e1116;border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+  #flightHud .fh-lab{font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  #flightHud .fh-val{font-family:var(--mono);font-size:26px;color:var(--accent2);line-height:1.15}
+  #flightHud .fh-val.amber{color:var(--accent)}
+  #flightHud .fh-val small{font-size:12px;color:var(--muted)}
+  #flightHud .fh-sec{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin:12px 0 6px;border-top:1px solid var(--line);padding-top:10px}
+  #flightHud .fh-prog{font-size:14px;line-height:1.7}
+  #flightHud .fh-prog b{color:var(--accent)}
+  /* full-screen flight-history page */
+  #historyPage{position:fixed;inset:0;z-index:3000;display:none;flex-direction:column;background:#0b0f14;color:#f3f6fa;font-family:var(--ui)}
+  #historyPage.open{display:flex}
+  #historyPage .fp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;font-size:20px;font-weight:800;color:#fff;background:#1b6fb0;flex:0 0 auto}
+  #historyPage .fp-head button{appearance:none;border:0;background:rgba(0,0,0,.28);color:#fff;font-size:16px;font-weight:700;min-width:42px;height:42px;border-radius:10px;cursor:pointer;padding:0 12px}
+  .fp-body{flex:1 1 auto;overflow-y:auto;padding:16px 18px 40px}
+  .hist-item{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 auto 12px;background:var(--panel2);max-width:820px}
+  .hist-when{font-size:15px;font-weight:700;color:#fff}
+  .hist-stats{font-family:var(--mono);font-size:13px;color:var(--accent2);margin:4px 0 10px}
+  .hist-btns{display:flex;gap:8px;flex-wrap:wrap}
+  .hist-btns .btn{flex:0 0 auto;min-width:110px}
+  .hist-empty{max-width:820px;margin:0 auto;font-size:14px;color:var(--muted);line-height:1.6}
 
   /* ---- Plotter (the signature element) ---- */
   #plotter{position:absolute;z-index:900;left:50%;top:50%;width:360px;height:520px;
@@ -210,6 +235,8 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 18 18z"/></svg>WX</button>
   <button class="tool" id="gpsBtn" title="GPS: show my position on the map (on/off)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>GPS</button>
+  <button class="tool" id="flyBtn" title="In-Flight mode: live heading, altitude, GPS and route progress; records the flight">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15l-8-4V4a1 1 0 0 0-2 0v7l-8 4v2l8-2v4l-2 1.5V22l3-1 3 1v-1.5L13 19v-4l8 2z"/></svg>Fly</button>
   <span class="sep"></span>
   <button class="tool proc-normal" id="procNormalBtn" title="Normal procedures (הליכים רגילים)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>Normal</button>
@@ -221,17 +248,34 @@
 
 <div id="panel">
   <div class="phead" id="panelGrip">
-    <span>NAV PLOTTER</span>
+    <span id="panelTitle">NAV PLOTTER</span>
     <span style="display:flex;gap:8px;align-items:center">
       <span class="dot"></span>
       <button class="tbtn" id="panelToggle" title="Collapse / expand">▾</button>
     </span>
   </div>
   <div class="pbody">
+    <div id="flightHud">
+      <div class="fh-row">
+        <div class="fh-cell"><div class="fh-lab">Heading (M)</div><div class="fh-val amber" id="fhHdg">— —</div></div>
+        <div class="fh-cell"><div class="fh-lab">Altitude</div><div class="fh-val" id="fhAlt">— <small>ft</small></div></div>
+      </div>
+      <div class="fh-row">
+        <div class="fh-cell"><div class="fh-lab">Ground speed</div><div class="fh-val" id="fhGs">— <small>kt</small></div></div>
+        <div class="fh-cell"><div class="fh-lab">Track (T)</div><div class="fh-val" id="fhTrk">— —</div></div>
+      </div>
+      <div class="fh-sec">Route progress</div>
+      <div id="fhProg" class="fh-prog">No route set.</div>
+      <div class="fh-sec" id="fhStatus">Acquiring GPS…</div>
+      <button class="btn warn" id="endFlightBtn" style="margin-top:10px">End flight</button>
+    </div>
     <div id="routeSummary">
       <div class="rs-title">Route summary</div>
       <div id="rsBody"><div class="rs-empty">No route yet. Pick the <b>Route</b> tool and tap waypoints, or add a fix below.</div></div>
       <div id="rsCur" class="rs-cur" style="display:none"></div>
+    </div>
+    <div class="btnrow">
+      <button class="btn" id="historyBtn">Flight history</button>
     </div>
     <div class="row"><label>Mag var °E</label><input type="number" id="magvar" value="5.3" step="0.1"></div>
     <div class="row"><label>Map scale</label><span class="pill" id="scaleOut">1 : —</span></div>
@@ -309,6 +353,11 @@
 <div id="procPage">
   <div id="procHead"><span id="procTitle"></span><button id="procClose" title="Close">✕ Close</button></div>
   <div id="procBody"></div>
+</div>
+
+<div id="historyPage">
+  <div class="fp-head"><span>Flight history</span><button id="histClose" title="Close">✕ Close</button></div>
+  <div id="histBody" class="fp-body"></div>
 </div>
 
 <div class="modal" id="modal"><div class="card" id="modalCard"></div></div>
@@ -717,6 +766,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   if (activeRoute){ map.removeLayer(activeRoute.fg); activeRoute = null; }
   if (measureLine){ map.removeLayer(measureLine); measureLine = null; }
   if (measureTmp){ map.removeLayer(measureTmp); measureTmp = null; }
+  if (histLayer){ map.removeLayer(histLayer); histLayer = null; }
   measureA = null;
   lastReadout = null; lastBearing = null; renderCur();
   updateRouteSummary();
@@ -1278,6 +1328,7 @@ function onGps(pos){
   const spd = (c.speed != null && !isNaN(c.speed)) ? (c.speed*1.94384).toFixed(0)+' kt' : '—';
   const hdg = (c.heading != null && !isNaN(c.heading)) ? Math.round(c.heading)+'°' : '—';
   gpsSetStatus(dm(c.latitude,'N','S')+' &nbsp; '+dm(c.longitude,'E','W')+'<br>±'+Math.round(c.accuracy)+' m &nbsp;·&nbsp; '+spd+' &nbsp;·&nbsp; '+hdg);
+  if (flightMode) recordFix(c);
 }
 function onGpsErr(err){
   let msg = 'GPS error.';
@@ -1462,6 +1513,152 @@ document.getElementById('procNormalBtn').addEventListener('click', () => openPro
 document.getElementById('procEmergBtn').addEventListener('click', () => openProc('emerg'));
 document.getElementById('procClose').addEventListener('click', closeProc);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeProc(); });
+
+// ============================================================
+//  IN-FLIGHT MODE  (live HUD + route progress + flight recording)
+// ============================================================
+let flightMode = false, flightTrack = [], flightStart = 0, flightDist = 0,
+    flightMaxAlt = 0, flightLastLL = null, flightRoute = [], flightTargetIdx = 1,
+    flownLine = null, flightTimer = null, histLayer = null;
+
+function recordFix(c){
+  const now = Date.now();
+  const ll = L.latLng(c.latitude, c.longitude);
+  if (flightLastLL) flightDist += nm(flightLastLL, ll);
+  flightLastLL = ll;
+  const altFt = (c.altitude != null && !isNaN(c.altitude)) ? c.altitude * 3.28084 : null;
+  if (altFt != null && altFt > flightMaxAlt) flightMaxAlt = altFt;
+  const spdKt = (c.speed != null && !isNaN(c.speed)) ? c.speed * 1.94384 : null;
+  flightTrack.push([+c.latitude.toFixed(5), +c.longitude.toFixed(5),
+    altFt != null ? Math.round(altFt) : null, spdKt != null ? +spdKt.toFixed(1) : null, now]);
+  if (flownLine) flownLine.addLatLng(ll);
+  updateFlightHud(c);
+}
+function updateFlightHud(c){
+  const hdgT = (c && c.heading != null && !isNaN(c.heading)) ? c.heading : null;
+  document.getElementById('fhHdg').textContent = (hdgT != null) ? fmtDeg(trueToMag(hdgT)) : '— —';
+  document.getElementById('fhTrk').textContent = (hdgT != null) ? fmtDeg(hdgT) : '— —';
+  const altFt = (c && c.altitude != null && !isNaN(c.altitude)) ? Math.round(c.altitude * 3.28084) : null;
+  document.getElementById('fhAlt').innerHTML = (altFt != null ? altFt : '—') + ' <small>ft</small>';
+  const gsKt = (c && c.speed != null && !isNaN(c.speed)) ? Math.round(c.speed * 1.94384) : null;
+  document.getElementById('fhGs').innerHTML = (gsKt != null ? gsKt : '—') + ' <small>kt</small>';
+  updateFlightProgress(c ? L.latLng(c.latitude, c.longitude) : null, gsKt);
+}
+function updateFlightProgress(cur, gsKt){
+  const el = document.getElementById('fhProg');
+  const pts = flightRoute;
+  if (!pts || pts.length < 2){ el.innerHTML = 'No route set before takeoff.'; return; }
+  if (!cur){ el.innerHTML = 'Waiting for GPS fix…'; return; }
+  while (flightTargetIdx < pts.length - 1 && nm(cur, pts[flightTargetIdx]) < 0.3) flightTargetIdx++;
+  const tgt = pts[flightTargetIdx];
+  const dTo = nm(cur, tgt);
+  const brgM = trueToMag(bearing(cur, tgt));
+  let remaining = dTo;
+  for (let i = flightTargetIdx; i < pts.length - 1; i++) remaining += nm(pts[i], pts[i + 1]);
+  const eta = (gsKt && gsKt > 3) ? Math.round(remaining / gsKt * 60) : null;
+  el.innerHTML =
+    '<div>Leg <b>' + flightTargetIdx + '/' + (pts.length - 1) + '</b> → WPT' + (flightTargetIdx + 1) + '</div>' +
+    '<div>To next: <b>' + dTo.toFixed(1) + ' NM</b> · brg <b>' + fmtDeg(brgM) + 'M</b></div>' +
+    '<div>Remaining: <b>' + remaining.toFixed(1) + ' NM</b>' + (eta != null ? ' · ETA <b>' + eta + ' min</b>' : '') + '</div>';
+}
+function startFlight(){
+  flightMode = true;
+  flightTrack = []; flightStart = Date.now(); flightDist = 0; flightMaxAlt = 0; flightLastLL = null;
+  flightRoute = routeForSummary().map(p => L.latLng(p.lat, p.lng));
+  flightTargetIdx = 1;
+  flownLine = L.polyline([], { color:'#22d3ee', weight:3, opacity:.9 }).addTo(map);
+  if (gpsId == null) startGps();          // ensure GPS is on
+  const panel = document.getElementById('panel');
+  panel.classList.remove('collapsed');
+  panel.classList.add('flying');
+  document.getElementById('panelTitle').textContent = 'IN-FLIGHT';
+  document.getElementById('flyBtn').classList.add('active');
+  map.invalidateSize();
+  updateFlightHud(null);
+  document.getElementById('fhStatus').textContent = 'Recording · waiting for GPS…';
+  flightTimer = setInterval(() => {
+    if (!flightMode) return;
+    const sec = Math.round((Date.now() - flightStart) / 1000);
+    document.getElementById('fhStatus').textContent =
+      'Recording · ' + fmtDur(sec) + ' · ' + flightTrack.length + ' fixes · ' + flightDist.toFixed(1) + ' NM';
+  }, 1000);
+}
+function endFlight(){
+  flightMode = false;
+  if (flightTimer){ clearInterval(flightTimer); flightTimer = null; }
+  if (flightTrack.length >= 2){
+    const end = Date.now();
+    const rec = {
+      id: flightStart,
+      start: flightStart, end,
+      durationSec: Math.round((end - flightStart) / 1000),
+      distanceNM: +flightDist.toFixed(1),
+      maxAltFt: Math.round(flightMaxAlt),
+      track: downsample(flightTrack, 600),
+      plan: flightRoute.map(p => [+p.lat.toFixed(5), +p.lng.toFixed(5)])
+    };
+    const arr = loadFlights(); arr.unshift(rec); saveFlights(arr);
+  }
+  if (flownLine){ map.removeLayer(flownLine); flownLine = null; }
+  const panel = document.getElementById('panel');
+  panel.classList.remove('flying');
+  document.getElementById('panelTitle').textContent = 'NAV PLOTTER';
+  document.getElementById('flyBtn').classList.remove('active');
+  map.invalidateSize();
+}
+function fmtDur(s){
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  return (h ? h + 'h ' : '') + m + 'm ' + ss + 's';
+}
+function loadFlights(){ try { return JSON.parse(localStorage.getItem('vfrFlights') || '[]'); } catch(_){ return []; } }
+function saveFlights(arr){ try { localStorage.setItem('vfrFlights', JSON.stringify(arr.slice(0, 30))); } catch(_){} }
+function downsample(arr, max){
+  if (arr.length <= max) return arr;
+  const step = Math.ceil(arr.length / max), out = [];
+  for (let i = 0; i < arr.length; i += step) out.push(arr[i]);
+  if (out[out.length - 1] !== arr[arr.length - 1]) out.push(arr[arr.length - 1]);
+  return out;
+}
+function openHistory(){
+  const arr = loadFlights();
+  const body = document.getElementById('histBody');
+  if (!arr.length){
+    body.innerHTML = '<div class="hist-empty">No flights recorded yet. Tap <b>Fly</b> to start In-Flight mode — your track, distance, altitude and route progress are recorded and saved here when you end the flight.</div>';
+  } else {
+    body.innerHTML = arr.map(f => {
+      const d = new Date(f.start);
+      return '<div class="hist-item">'
+        + '<div class="hist-when">' + d.toLocaleString() + '</div>'
+        + '<div class="hist-stats">' + fmtDur(f.durationSec) + ' · ' + f.distanceNM + ' NM · max ' + f.maxAltFt + ' ft · ' + (f.track ? f.track.length : 0) + ' fixes</div>'
+        + '<div class="hist-btns"><button class="btn" data-act="show" data-id="' + f.id + '">Show on map</button>'
+        + '<button class="btn warn" data-act="del" data-id="' + f.id + '">Delete</button></div>'
+        + '</div>';
+    }).join('');
+  }
+  document.getElementById('historyPage').classList.add('open');
+}
+function closeHistory(){ document.getElementById('historyPage').classList.remove('open'); }
+function showFlightOnMap(f){
+  if (histLayer){ map.removeLayer(histLayer); histLayer = null; }
+  const layers = [];
+  if (f.plan && f.plan.length > 1) layers.push(L.polyline(f.plan.map(p => L.latLng(p[0], p[1])), { color:'#e0218a', weight:2, dashArray:'5,5' }));
+  if (f.track && f.track.length > 1) layers.push(L.polyline(f.track.map(p => L.latLng(p[0], p[1])), { color:'#22d3ee', weight:3 }));
+  if (!layers.length) return;
+  histLayer = L.featureGroup(layers).addTo(map);
+  try { map.fitBounds(histLayer.getBounds().pad(0.15)); } catch(_){}
+  closeHistory();
+}
+document.getElementById('flyBtn').addEventListener('click', () => { flightMode ? endFlight() : startFlight(); });
+document.getElementById('endFlightBtn').addEventListener('click', endFlight);
+document.getElementById('historyBtn').addEventListener('click', openHistory);
+document.getElementById('histClose').addEventListener('click', closeHistory);
+document.getElementById('histBody').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]'); if (!btn) return;
+  const id = +btn.dataset.id;
+  if (btn.dataset.act === 'show'){ const f = loadFlights().find(x => x.id === id); if (f) showFlightOnMap(f); }
+  else if (btn.dataset.act === 'del'){ saveFlights(loadFlights().filter(x => x.id !== id)); openHistory(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistory(); });
 
 // init
 updateScale();
